@@ -8,6 +8,9 @@ enum Route: Hashable {
     case playlist(String)
     case localPlaylist(UUID)
     case history
+    case subscriptionFeed
+    case liveNow
+    case localPlaylists
 
     /// Maps a search / channel-tab result to its destination.
     init?(_ item: ContentItem) {
@@ -32,6 +35,9 @@ private struct RouteDestinations: ViewModifier {
             case .playlist(let id): PlaylistView(playlistId: id)
             case .localPlaylist(let id): LocalPlaylistView(playlistId: id)
             case .history: HistoryView()
+            case .subscriptionFeed: VideoListView(title: "Featured", source: .subscriptions)
+            case .liveNow: VideoListView(title: "Live Now", source: .liveNow)
+            case .localPlaylists: LocalPlaylistsView()
             }
         }
     }

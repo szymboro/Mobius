@@ -23,7 +23,7 @@ public final class Settings: ObservableObject {
         static let sponsorBlockCategories = "sponsorBlockCategories"
         static let preferredQuality = "preferredQuality"
         static let streamSource = "streamSource"
-        static let homeContent = "homeContent"
+        static let homeSections = "homeSections"
     }
 
     private let defaults: UserDefaults
@@ -66,9 +66,21 @@ public final class Settings: ObservableObject {
         }
     }
 
-    /// What the Home tab shows.
-    @Published public var homeContent: HomeContent {
-        didSet { defaults.set(homeContent.rawValue, forKey: Key.homeContent) }
+    /// Sections shown on the Home tab, in order (like LibreTube Android's home).
+    @Published public var homeSections: [HomeSection] {
+        didSet { defaults.set(homeSections.map(\.rawValue), forKey: Key.homeSections) }
+    }
+
+    public func isHomeSectionEnabled(_ section: HomeSection) -> Bool { homeSections.contains(section) }
+
+    public func setHomeSection(_ section: HomeSection, enabled: Bool) {
+        if enabled {
+            guard !homeSections.contains(section) else { return }
+            // Keep the canonical order.
+            homeSections = HomeSection.allCases.filter { $0 == section || homeSections.contains($0) }
+        } else {
+            homeSections.removeAll { $0 == section }
+        }
     }
 
     /// Latest videos from the given channels: Piped's feed endpoint, falling back to
@@ -101,7 +113,8 @@ public final class Settings: ObservableObject {
         }
         preferredQuality = defaults.string(forKey: Key.preferredQuality) ?? "auto"
         streamSource = defaults.string(forKey: Key.streamSource).flatMap(StreamSource.init(rawValue:)) ?? .onDevice
-        homeContent = defaults.string(forKey: Key.homeContent).flatMap(HomeContent.init(rawValue:)) ?? .trending
+        homeSections = defaults.stringArray(forKey: Key.homeSections)?.compactMap(HomeSection.init(rawValue:))
+            ?? HomeSection.allCases
         api = PipedAPI(baseURL: url)
     }
 
@@ -118,19 +131,27 @@ public final class Settings: ObservableObject {
         sponsorBlockCategories = Settings.defaultSponsorBlockCategories
         preferredQuality = "auto"
         streamSource = .onDevice
-        homeContent = .trending
+        homeSections = HomeSection.allCases
     }
 }
 
-public enum HomeContent: String, CaseIterable, Codable, Sendable, Identifiable {
-    case trending
-    case subscriptions
+public enum HomeSection: String, CaseIterable, Codable, Sendable, Identifiable {
+    /// Latest videos from subscribed channels.
+    case featured
+    /// Partly watched videos from history.
+    case continueWatching
+    /// YouTube's former Trending list; YouTube now only offers live streams there.
+    case liveNow
+    /// Local playlists.
+    case playlists
 
     public var id: String { rawValue }
     public var title: String {
         switch self {
-        case .trending: "Trending"
-        case .subscriptions: "Subscriptions"
+        case .featured: "Featured"
+        case .continueWatching: "Continue Watching"
+        case .liveNow: "Live Now"
+        case .playlists: "Playlists"
         }
     }
 }

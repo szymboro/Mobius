@@ -164,11 +164,9 @@ struct SettingsView: View {
 
     private var contentSection: some View {
         Section("Content") {
-            Picker("Home", selection: $settings.homeContent) {
-                ForEach(HomeContent.allCases) { Text($0.title).tag($0) }
-            }
+            NavigationLink("Home Sections") { HomeSectionsSettingsView() }
 
-            Picker("Trending Region", selection: $settings.region) {
+            Picker("Live Now Region", selection: $settings.region) {
                 ForEach(Self.regions, id: \.self) { code in
                     Text(Self.regionName(code)).tag(code)
                 }
@@ -324,5 +322,26 @@ struct SettingsView: View {
         let version = info?["CFBundleShortVersionString"] as? String ?? "—"
         let build = info?["CFBundleVersion"] as? String ?? "—"
         return "\(version) (\(build))"
+    }
+}
+
+/// Turns the Home tab's sections on and off.
+struct HomeSectionsSettingsView: View {
+    @ObservedObject private var settings = AppSettings.shared
+
+    var body: some View {
+        Form {
+            Section {
+                ForEach(HomeSection.allCases) { section in
+                    Toggle(section.title, isOn: Binding(
+                        get: { settings.isHomeSectionEnabled(section) },
+                        set: { settings.setHomeSection(section, enabled: $0) }
+                    ))
+                }
+            } footer: {
+                Text("YouTube no longer has a Trending page; the only list it still offers there is live streams, shown as Live Now.")
+            }
+        }
+        .navigationTitle("Home Sections")
     }
 }

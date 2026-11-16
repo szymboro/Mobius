@@ -83,40 +83,16 @@ public final class Settings: ObservableObject {
         }
     }
 
-    /// Latest videos from the given channels. Piped's feed endpoint and YouTube's per-channel RSS
-    /// feeds are fetched together and merged: unauthenticated Piped feeds are often stale for
-    /// channels nobody on the instance follows, while RSS is always current but lacks durations.
+    /// Latest videos from the given channels (see `SubscriptionFeed` for the sources).
     /// Missing avatars are filled in from the stored subscriptions.
     public func subscriptionFeed(channelIds: [String]) async throws -> [StreamItem] {
         guard !channelIds.isEmpty else { return [] }
-        let api = self.api
-        async let pipedResult: Result<[StreamItem], Error> = {
-            do { return .success(try await api.feed(channelIds: channelIds)) } catch { return .failure(error) }
-        }()
-        async let rssItems = YouTubeRSS.feed(channelIds: channelIds)
-        let (piped, rss) = await (pipedResult, rssItems)
-        try Task.checkCancellation()
-
-        var merged: [String: StreamItem] = [:]
-        for item in rss where !item.videoId.isEmpty { merged[item.videoId] = item }
-        if case .success(let items) = piped {
-            for var item in items where !item.videoId.isEmpty {
-                if let fresh = merged[item.videoId] {
-                    // RSS has the exact publish time and view count; Piped has duration and avatar.
-                    if fresh.uploaded > 0 { item.uploaded = fresh.uploaded }
-                    if let views = fresh.views, views > (item.views ?? 0) { item.views = views }
-                    item.isShort = item.isShort || fresh.isShort
-                }
-                merged[item.videoId] = item
-            }
-        } else if case .failure(let error) = piped, merged.isEmpty {
-            throw error
-        }
+        let merged = try await SubscriptionFeed.load(channelIds: channelIds, api: api)
 
         let subscriptions = Dictionary(
             LibraryStore.shared.subscriptions.map { ($0.channelId, $0) }, uniquingKeysWith: { a, _ in a }
         )
-        return merged.values.map { item in
+        return merged.map { item in
             var item = item
             if let channelId = item.uploaderChannelId, let sub = subscriptions[channelId] {
                 if item.uploaderAvatar?.isEmpty ?? true { item.uploaderAvatar = sub.avatar }

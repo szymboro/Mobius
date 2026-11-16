@@ -62,7 +62,6 @@ private struct ExpandedPlayer: View {
     @ObservedObject var model: PlayerViewModel
     let isExpanded: Bool
     @State private var dragOffset: CGFloat = 0
-    @State private var showingLog = false
 
     var body: some View {
         GeometryReader { proxy in
@@ -88,40 +87,21 @@ private struct ExpandedPlayer: View {
             .allowsHitTesting(isExpanded)
             .accessibilityHidden(!isExpanded)
         }
-        .sheet(isPresented: $showingLog) { PlaybackLogView() }
     }
 
+    /// Just a grab handle: drag down here (or on the video) to minimize.
     private var header: some View {
-        ZStack {
-            Capsule()
-                .fill(.secondary.opacity(0.5))
-                .frame(width: 36, height: 5)
-            HStack(spacing: 10) {
-                Button {
-                    NowPlaying.shared.minimize()
-                } label: {
-                    Image(systemName: "chevron.down")
-                        .font(.body.weight(.semibold))
-                        .glassCircle()
-                }
-                .accessibilityLabel("Minimize Player")
-                Spacer()
-                QualityMenu(model: model)
-                Button {
-                    showingLog = true
-                } label: {
-                    Image(systemName: "ladybug")
-                        .font(.body.weight(.medium))
-                        .glassCircle()
-                }
-                .accessibilityLabel("Playback Log")
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 12)
-        .frame(height: 52)
-        .contentShape(Rectangle())
-        .gesture(MinimizeDrag.gesture(offset: $dragOffset))
+        Capsule()
+            .fill(.secondary.opacity(0.5))
+            .frame(width: 36, height: 5)
+            .frame(maxWidth: .infinity)
+            .frame(height: 24)
+            .contentShape(Rectangle())
+            .gesture(MinimizeDrag.gesture(offset: $dragOffset))
+            .accessibilityElement()
+            .accessibilityLabel("Minimize Player")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { NowPlaying.shared.minimize() }
     }
 }
 
@@ -163,11 +143,9 @@ struct QualityMenu: View {
             }
             .pickerStyle(.inline)
         } label: {
-            Image(systemName: "gearshape")
-                .font(.body.weight(.medium))
-                .glassCircle()
+            Label(model.qualitySelection.map { "\($0)p" } ?? "Auto", systemImage: "gearshape")
         }
-        .buttonStyle(.plain)
+        .menuStyle(.button)
         .disabled(model.qualityMode == .unavailable)
         .accessibilityLabel("Quality")
         .accessibilityValue(model.qualitySelection.map { title(for: $0) } ?? autoTitle)

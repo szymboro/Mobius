@@ -123,6 +123,7 @@ struct PlayerView: View {
                     Label("Share", systemImage: "square.and.arrow.up")
                 }
             }
+            QualityMenu(model: model)
         }
         .buttonStyle(.bordered)
         .font(.subheadline)

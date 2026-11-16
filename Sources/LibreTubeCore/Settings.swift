@@ -24,6 +24,8 @@ public final class Settings: ObservableObject {
         static let preferredQuality = "preferredQuality"
         static let streamSource = "streamSource"
         static let homeSections = "homeSections"
+        static let autoplay = "autoplay"
+        static let audioOnly = "audioOnly"
     }
 
     private let defaults: UserDefaults
@@ -56,6 +58,16 @@ public final class Settings: ObservableObject {
     /// Where video streams come from. Lists, search, channels and comments always use Piped.
     @Published public var streamSource: StreamSource {
         didSet { defaults.set(streamSource.rawValue, forKey: Key.streamSource) }
+    }
+
+    /// Play the next related video when one ends.
+    @Published public var autoplay: Bool {
+        didSet { defaults.set(autoplay, forKey: Key.autoplay) }
+    }
+
+    /// Show the thumbnail instead of the video and stream the lowest video quality (e.g. music).
+    @Published public var audioOnly: Bool {
+        didSet { defaults.set(audioOnly, forKey: Key.audioOnly) }
     }
 
     /// Resolves playable streams for a video from the selected `streamSource`.
@@ -121,6 +133,8 @@ public final class Settings: ObservableObject {
         streamSource = defaults.string(forKey: Key.streamSource).flatMap(StreamSource.init(rawValue:)) ?? .onDevice
         homeSections = defaults.stringArray(forKey: Key.homeSections)?.compactMap(HomeSection.init(rawValue:))
             ?? HomeSection.allCases
+        autoplay = defaults.object(forKey: Key.autoplay) as? Bool ?? true
+        audioOnly = defaults.bool(forKey: Key.audioOnly)
         api = PipedAPI(baseURL: url)
     }
 
@@ -138,6 +152,8 @@ public final class Settings: ObservableObject {
         preferredQuality = "auto"
         streamSource = .onDevice
         homeSections = HomeSection.allCases
+        autoplay = true
+        audioOnly = false
     }
 }
 

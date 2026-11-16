@@ -18,6 +18,9 @@ final class NowPlaying: ObservableObject {
     /// pushes it onto the selected tab's path and clears it.
     @Published var pendingRoute: Route?
 
+    /// Videos opened since launch, so autoplay doesn't loop between two related videos.
+    private(set) var playedThisSession: Set<String> = []
+
     private let info = NowPlayingInfo()
     private var remoteCommandsRegistered = false
 
@@ -29,8 +32,10 @@ final class NowPlaying: ObservableObject {
 
     /// Plays `videoId` in the expanded player. Reuses the current model for the same video;
     /// otherwise the old one is torn down first so only one AVPlayer ever plays.
-    func open(videoId: String) {
+    /// `expand: false` (autoplay) keeps a minimized player minimized.
+    func open(videoId: String, expand shouldExpand: Bool = true) {
         guard !videoId.isEmpty else { return }
+        playedThisSession.insert(videoId)
         if let model, model.videoId == videoId, !model.isClosed {
             log("open \(videoId): already playing, expanding")
             expand()
@@ -49,8 +54,8 @@ final class NowPlaying: ObservableObject {
             self.info.handle(event, for: new)
         }
         info.reset(for: new)
-        if isExpanded {
-            // Related video tapped in the expanded player: swap in place, no slide.
+        if isExpanded || !shouldExpand {
+            // Related video tapped in the expanded player, or autoplay: swap in place, no slide.
             model = new
         } else {
             withAnimation(Self.spring) {
@@ -59,6 +64,14 @@ final class NowPlaying: ObservableObject {
             }
         }
         new.start()
+    }
+
+    /// Skips to the autoplay candidate (lock screen / headphone "next").
+    @discardableResult
+    func playNext() -> Bool {
+        guard let next = model?.nextVideo else { return false }
+        open(videoId: next.videoId, expand: false)
+        return true
     }
 
     func minimize() {
@@ -132,7 +145,9 @@ final class NowPlaying: ObservableObject {
         Self.addTarget(center.skipBackwardCommand) { _ in
             NowPlaying.shared.withModel { $0.skip(by: -10) }
         }
-        center.nextTrackCommand.isEnabled = false
+        Self.addTarget(center.nextTrackCommand) { _ in
+            NowPlaying.shared.playNext()
+        }
         center.previousTrackCommand.isEnabled = false
     }
 

@@ -79,6 +79,8 @@ final class PlayerViewModel: ObservableObject {
     /// after minimizing, and both keep the SABR server running when the app goes to the background.
     var isFullScreen = false
     @Published var isPictureInPictureActive = false
+    /// Thumbnail instead of video, lowest video quality (Settings.audioOnly, toggled in the player).
+    @Published private(set) var isAudioOnly = AppSettings.shared.audioOnly
 
     let clock = PlaybackClock()
     /// Called on the main actor; `NowPlaying` uses it to update `MPNowPlayingInfoCenter`.
@@ -142,7 +144,8 @@ final class PlayerViewModel: ObservableObject {
             related = (optional(streams.relatedStreams) ?? []).map { VideoInfo($0) }.uniqued()
             fillMissingDetails(from: streams)
             phase = .loaded
-            await startPlayback(streams, preferredQuality: settings.preferredQuality)
+            // Audio only: start at the lowest video quality ("144p" resolves to the lowest offered).
+            await startPlayback(streams, preferredQuality: isAudioOnly ? "144p" : settings.preferredQuality)
             if settings.sponsorBlockEnabled, !isClosed {
                 await loadSegments(categories: Array(settings.sponsorBlockCategories))
             }
@@ -410,6 +413,36 @@ final class PlayerViewModel: ObservableObject {
         seek(to: target)
     }
 
+    // MARK: Audio only
+
+    func setAudioOnly(_ enabled: Bool) {
+        guard enabled != isAudioOnly else { return }
+        isAudioOnly = enabled
+        AppSettings.shared.audioOnly = enabled
+        PlaybackLog.shared.add("audio only \(enabled ? "on" : "off")")
+        guard qualityMode != .unavailable, !qualityOptions.isEmpty else { return }
+        if enabled {
+            selectQuality(qualityOptions.last)
+        } else {
+            selectQuality(Self.resolve(Self.height(ofQuality: AppSettings.shared.preferredQuality), in: qualityOptions))
+        }
+    }
+
+    // MARK: Autoplay
+
+    /// The first related video not yet played in this session (and not a livestream).
+    var nextVideo: VideoInfo? {
+        related.first { !NowPlaying.shared.playedThisSession.contains($0.videoId) && !$0.isLive }
+    }
+
+    private func playbackEnded() {
+        guard !isClosed else { return }
+        capturePosition()
+        guard AppSettings.shared.autoplay, let next = nextVideo else { return }
+        PlaybackLog.shared.add("autoplay: \(next.videoId)")
+        NowPlaying.shared.open(videoId: next.videoId, expand: false)
+    }
+
     // MARK: Quality
 
     /// Fills the menu for the stream that is now playing. For SABR the selection was already
@@ -582,6 +615,13 @@ final class PlayerViewModel: ObservableObject {
                 MainActor.assumeIsolated {
                     guard let self, !self.isClosed else { return }
                     self.onEvent?(.playback)
+                }
+            },
+            center.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification, object: nil, queue: .main) { [weak self] note in
+                let item = note.object as? AVPlayerItem
+                MainActor.assumeIsolated {
+                    guard let self, let item, item === self.player?.currentItem else { return }
+                    self.playbackEnded()
                 }
             },
         ]

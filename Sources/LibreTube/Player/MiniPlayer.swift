@@ -303,7 +303,7 @@ private struct MiniPlayerContent: View {
     private var surface: some View {
         ZStack {
             Color.black
-            if let player = model.player {
+            if let player = model.player, !model.isAudioOnly {
                 PlayerLayerView(player: player)
             } else {
                 RemoteImage(url: model.video?.thumbnail)

@@ -202,6 +202,9 @@ struct SettingsView: View {
                     Text(quality == "auto" ? "Auto" : quality).tag(quality)
                 }
             }
+
+            Toggle("Autoplay Next Video", isOn: $settings.autoplay)
+            Toggle("Audio Only", isOn: $settings.audioOnly)
         }
     }
 

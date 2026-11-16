@@ -10,6 +10,7 @@ struct PlayerView: View {
     @State private var tab: PlayerViewModel.Tab = .related
     @State private var descriptionExpanded = false
     @State private var showingAddToPlaylist = false
+    @ObservedObject private var settings = AppSettings.shared
 
     var body: some View {
         VStack(spacing: 0) {
@@ -33,7 +34,8 @@ struct PlayerView: View {
         ZStack {
             Color.black
             if let player = model.player {
-                PlayerController(player: player, model: model)
+                PlayerController(player: player, model: model,
+                                 artwork: model.video?.thumbnail, isAudioOnly: model.isAudioOnly)
             } else if let error = model.playbackError {
                 VStack(spacing: 8) {
                     Image(systemName: "exclamationmark.triangle")
@@ -112,6 +114,13 @@ struct PlayerView: View {
     }
 
     private func actions(video: VideoInfo) -> some View {
+        // Scrolls sideways when the buttons don't fit (small iPhones, large text).
+        ScrollView(.horizontal, showsIndicators: false) {
+            actionButtons(video: video)
+        }
+    }
+
+    private func actionButtons(video: VideoInfo) -> some View {
         HStack(spacing: 12) {
             Button {
                 showingAddToPlaylist = true
@@ -124,6 +133,14 @@ struct PlayerView: View {
                 }
             }
             QualityMenu(model: model)
+            Button {
+                model.setAudioOnly(!model.isAudioOnly)
+            } label: {
+                Label("Audio Only", systemImage: model.isAudioOnly ? "headphones.circle.fill" : "headphones")
+            }
+            .tint(model.isAudioOnly ? .accentColor : nil)
+            .accessibilityLabel("Audio Only")
+            .accessibilityValue(model.isAudioOnly ? "On" : "Off")
         }
         .buttonStyle(.bordered)
         .font(.subheadline)
@@ -231,6 +248,10 @@ struct PlayerView: View {
 
     @ViewBuilder
     private var relatedSection: some View {
+        Toggle(isOn: $settings.autoplay) {
+            Label("Autoplay", systemImage: "play.square.stack")
+                .font(.subheadline.weight(.semibold))
+        }
         if model.related.isEmpty {
             Text("No related videos.")
                 .foregroundStyle(.secondary)

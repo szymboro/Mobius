@@ -6,6 +6,9 @@ import SwiftUI
 struct PlayerController: UIViewControllerRepresentable {
     let player: AVPlayer
     let model: PlayerViewModel
+    /// Shown over the video (under AVKit's controls) in audio-only mode.
+    var artwork: String?
+    var isAudioOnly = false
 
     func makeCoordinator() -> Coordinator {
         Coordinator(model: model)
@@ -24,6 +27,7 @@ struct PlayerController: UIViewControllerRepresentable {
 
     func updateUIViewController(_ container: InlinePlayerContainer, context: Context) {
         container.player = player
+        container.showArtwork(artwork, visible: isAudioOnly)
     }
 
     @MainActor
@@ -139,6 +143,31 @@ final class InlinePlayerContainer: UIViewController {
         attach()
     }
 
+    private var artworkHost: UIHostingController<AudioOnlyArtwork>?
+
+    /// Covers the video with the thumbnail. It lives in `contentOverlayView`, which AVKit draws
+    /// above the video but below its own controls, so playback controls keep working.
+    func showArtwork(_ url: String?, visible: Bool) {
+        guard visible else {
+            artworkHost?.view.isHidden = true
+            return
+        }
+        _ = playerController.view // loads the controller, creating contentOverlayView
+        guard let overlay = playerController.contentOverlayView else { return }
+        if let host = artworkHost {
+            host.rootView = AudioOnlyArtwork(url: url)
+        } else {
+            let host = UIHostingController(rootView: AudioOnlyArtwork(url: url))
+            host.view.backgroundColor = .black
+            host.view.isUserInteractionEnabled = false
+            host.view.frame = overlay.bounds
+            host.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            overlay.addSubview(host.view)
+            artworkHost = host
+        }
+        artworkHost?.view.isHidden = false
+    }
+
     @objc private func willEnterForeground() {
         isInBackground = false
         attach()
@@ -161,4 +190,26 @@ final class InlinePlayerContainer: UIViewController {
     override var childForStatusBarHidden: UIViewController? { nil }
     override var childForStatusBarStyle: UIViewController? { nil }
     override var childForHomeIndicatorAutoHidden: UIViewController? { nil }
+}
+
+/// Thumbnail with an "Audio only" badge, in place of the video.
+struct AudioOnlyArtwork: View {
+    let url: String?
+
+    var body: some View {
+        ZStack {
+            Color.black
+            Color.clear
+                .aspectRatio(16 / 9, contentMode: .fit)
+                .overlay { RemoteImage(url: url) }
+                .clipped()
+                .opacity(0.6)
+            Label("Audio only", systemImage: "headphones")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(.black.opacity(0.6), in: Capsule())
+        }
+    }
 }

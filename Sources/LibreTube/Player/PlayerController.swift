@@ -11,7 +11,7 @@ struct PlayerController: UIViewControllerRepresentable {
         Coordinator(model: model)
     }
 
-    func makeUIViewController(context: Context) -> AVPlayerViewController {
+    func makeUIViewController(context: Context) -> InlinePlayerContainer {
         let controller = AVPlayerViewController()
         controller.player = player
         controller.allowsPictureInPicturePlayback = true
@@ -19,12 +19,12 @@ struct PlayerController: UIViewControllerRepresentable {
         // NowPlaying publishes title, artwork and timing itself; AVKit would overwrite it.
         controller.updatesNowPlayingInfoCenter = false
         controller.delegate = context.coordinator
-        return controller
+        return InlinePlayerContainer(playerController: controller)
     }
 
-    func updateUIViewController(_ controller: AVPlayerViewController, context: Context) {
-        if controller.player !== player {
-            controller.player = player
+    func updateUIViewController(_ container: InlinePlayerContainer, context: Context) {
+        if container.playerController.player !== player {
+            container.playerController.player = player
         }
     }
 
@@ -75,4 +75,35 @@ extension PlayerController.Coordinator: @preconcurrency AVPlayerViewControllerDe
     ) -> Bool {
         false
     }
+}
+
+/// Hosts the inline `AVPlayerViewController` as a child. AVPlayerViewController reports
+/// `prefersStatusBarHidden = true`, and when embedded in SwiftUI that hid the clock and status
+/// icons while the player was on screen. This container keeps the status bar visible inline
+/// (AVKit's own full-screen presentation still manages it there).
+final class InlinePlayerContainer: UIViewController {
+    let playerController: AVPlayerViewController
+
+    init(playerController: AVPlayerViewController) {
+        self.playerController = playerController
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .black
+        addChild(playerController)
+        playerController.view.frame = view.bounds
+        playerController.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.addSubview(playerController.view)
+        playerController.didMove(toParent: self)
+    }
+
+    override var prefersStatusBarHidden: Bool { false }
+    override var childForStatusBarHidden: UIViewController? { nil }
+    override var childForStatusBarStyle: UIViewController? { nil }
+    override var childForHomeIndicatorAutoHidden: UIViewController? { nil }
 }

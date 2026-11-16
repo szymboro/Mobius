@@ -46,13 +46,25 @@ private struct ExpandedPlayer: View {
 
     var body: some View {
         GeometryReader { proxy in
+            let insets = proxy.safeAreaInsets
             VStack(spacing: 0) {
                 header
                 PlayerView(model: model, dragOffset: $dragOffset)
             }
-            .background(Color(.systemBackground).ignoresSafeArea())
+            // Lay out inside the safe area, but let the background (and the clip) cover the whole
+            // screen. Clipping the safe-area-sized frame left the home-indicator strip uncovered,
+            // so the tab bar peeked through at the bottom.
+            .padding(.top, insets.top)
+            .padding(.leading, insets.leading)
+            .padding(.trailing, insets.trailing)
+            .frame(width: proxy.size.width + insets.leading + insets.trailing,
+                   height: proxy.size.height + insets.top + insets.bottom,
+                   alignment: .top)
+            .background(Color(.systemBackground))
             .clipShape(.rect(cornerRadius: dragOffset > 0 ? 24 : 0))
-            .offset(y: isExpanded ? dragOffset : proxy.size.height + proxy.safeAreaInsets.bottom + proxy.safeAreaInsets.top)
+            .offset(y: isExpanded ? dragOffset : proxy.size.height + insets.bottom + insets.top)
+            .ignoresSafeArea()
+            .statusBarHidden(false)
             .allowsHitTesting(isExpanded)
             .accessibilityHidden(!isExpanded)
         }

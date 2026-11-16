@@ -1,5 +1,5 @@
 version: 1
-bundleID: com.github.szymboro.aeternus
+bundleID: com.github.szymboro.mobius
 infoPath: Resources/Info.plist
 iconPath: Resources/AppIcon.png
 resources:

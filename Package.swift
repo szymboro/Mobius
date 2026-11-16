@@ -2,16 +2,16 @@
 import PackageDescription
 
 let package = Package(
-    name: "Aeternus",
+    name: "Mobius",
     platforms: [.iOS(.v17)],
     products: [
-        .library(name: "Aeternus", targets: ["Aeternus"]),
+        .library(name: "Mobius", targets: ["Mobius"]),
     ],
     targets: [
-        .target(name: "AeternusCore"),
+        .target(name: "MobiusCore"),
         .target(
-            name: "Aeternus",
-            dependencies: ["AeternusCore"],
+            name: "Mobius",
+            dependencies: ["MobiusCore"],
             linkerSettings: [
                 // SwiftPM stamps LC_BUILD_VERSION with sdk = deployment target (17.0), which makes
                 // iOS run the app in compatibility mode (old keyboard, no Liquid Glass). Record the

@@ -41,7 +41,17 @@ struct VideoCard: View {
             VideoThumbnail(video: video)
             HStack(alignment: .top, spacing: 10) {
                 if video.uploaderAvatar != nil {
-                    Avatar(url: video.uploaderAvatar)
+                    if let channelId = video.channelId {
+                        // Nested link: the innermost control wins the tap, so the avatar opens the
+                        // channel while the rest of the card still plays the video.
+                        NavigationLink(value: Route.channel(channelId)) {
+                            Avatar(url: video.uploaderAvatar)
+                                .contentShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        Avatar(url: video.uploaderAvatar)
+                    }
                 }
                 VStack(alignment: .leading, spacing: 3) {
                     Text(video.title)

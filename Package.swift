@@ -2,16 +2,16 @@
 import PackageDescription
 
 let package = Package(
-    name: "LibreTube",
+    name: "Aeternus",
     platforms: [.iOS(.v17)],
     products: [
-        .library(name: "LibreTube", targets: ["LibreTube"]),
+        .library(name: "Aeternus", targets: ["Aeternus"]),
     ],
     targets: [
-        .target(name: "LibreTubeCore"),
+        .target(name: "AeternusCore"),
         .target(
-            name: "LibreTube",
-            dependencies: ["LibreTubeCore"],
+            name: "Aeternus",
+            dependencies: ["AeternusCore"],
             linkerSettings: [
                 // SwiftPM stamps LC_BUILD_VERSION with sdk = deployment target (17.0), which makes
                 // iOS run the app in compatibility mode (old keyboard, no Liquid Glass). Record the

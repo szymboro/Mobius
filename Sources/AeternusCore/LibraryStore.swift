@@ -282,8 +282,7 @@ public final class LibraryStore: ObservableObject {
         let fm = FileManager.default
         let base = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? fm.temporaryDirectory
-        // Still "LibreTube" from before the rename to Aeternus, so existing libraries keep loading.
-        return base.appendingPathComponent("LibreTube", isDirectory: true)
+        return base.appendingPathComponent("Aeternus", isDirectory: true)
             .appendingPathComponent("library.json")
     }
 }

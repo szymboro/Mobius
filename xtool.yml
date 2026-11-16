@@ -1,5 +1,5 @@
 version: 1
-bundleID: com.github.libretube.ios
+bundleID: com.github.szymboro.aeternus
 infoPath: Resources/Info.plist
 iconPath: Resources/AppIcon.png
 resources:

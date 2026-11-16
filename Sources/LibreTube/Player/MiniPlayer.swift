@@ -18,7 +18,7 @@ struct ExpandedPlayerHost: View {
                     .id(ObjectIdentifier(model))
                     // Child transitions don't run when their parent is inserted, so the mount
                     // carries the slide for a fresh open.
-                    .transition(.move(edge: .bottom))
+                    .transition(.slideOffScreen)
             }
         }
     }
@@ -32,9 +32,29 @@ private struct ExpandedPlayerMount: View {
         ZStack {
             if isExpanded || model.isPictureInPictureActive {
                 ExpandedPlayer(model: model, isExpanded: isExpanded)
-                    .transition(.move(edge: .bottom))
+                    .transition(.slideOffScreen)
             }
         }
+    }
+}
+
+/// Slides the player fully below the screen. `.move(edge: .bottom)` only moves a view by its own
+/// (safe-area) height, but the player draws edge to edge, so its top ~90 pt stayed visible above
+/// the tab bar until the animation settled.
+private struct SlideOffScreen: ViewModifier {
+    let isActive: Bool
+
+    func body(content: Content) -> some View {
+        content.visualEffect { effect, proxy in
+            let insets = proxy.safeAreaInsets
+            return effect.offset(y: isActive ? proxy.size.height + insets.top + insets.bottom : 0)
+        }
+    }
+}
+
+private extension AnyTransition {
+    static var slideOffScreen: AnyTransition {
+        .modifier(active: SlideOffScreen(isActive: true), identity: SlideOffScreen(isActive: false))
     }
 }
 

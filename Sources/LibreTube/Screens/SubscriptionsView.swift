@@ -60,7 +60,13 @@ struct SubscriptionsView: View {
                 }
             }
         }
+        // Swap Feed/Channels instantly: animating between a ScrollView and a List made the bar
+        // and content jump around.
+        .animation(nil, value: mode)
         .navigationTitle("Subscriptions")
+        // The segmented picker takes the title's place; a large title would collapse and expand
+        // whenever the bar re-attached to the other view's scroll view.
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Picker("View", selection: $mode) {
@@ -109,7 +115,8 @@ struct SubscriptionsView: View {
 
     private var channels: some View {
         List {
-            ForEach(library.subscriptions, id: \.self) { subscription in
+            // Identity by channel: avatars filled in later must update rows, not replace them.
+            ForEach(library.subscriptions, id: \.channelId) { subscription in
                 let channelId = (optional(subscription.url) ?? "").channelIdFromURL
                 NavigationLink(value: Route.channel(channelId)) {
                     ChannelRow(

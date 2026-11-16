@@ -76,6 +76,7 @@ struct SettingsView: View {
     @State private var importing = false
     @State private var importMessage: String?
     @State private var showingLog = false
+    @State private var exportFile: ExportFile?
 
     var body: some View {
         Form {
@@ -110,7 +111,11 @@ struct SettingsView: View {
             .ignoresSafeArea()
         }
         .sheet(isPresented: $showingLog) { PlaybackLogView() }
-        .alert("Import", isPresented: Binding(
+        .sheet(item: $exportFile) { file in
+            ShareSheet(items: [file.url])
+                .presentationDetents([.medium, .large])
+        }
+        .alert("Import & Export", isPresented: Binding(
             get: { importMessage != nil },
             set: { if !$0 { importMessage = nil } }
         )) {
@@ -276,8 +281,22 @@ struct SettingsView: View {
             } label: {
                 Label("Import Subscriptions & Playlists", systemImage: "square.and.arrow.down")
             }
+            Button {
+                export("subscriptions") { try Exporter.newPipeSubscriptions(library.subscriptions) }
+            } label: {
+                Label("Export Subscriptions (.json)", systemImage: "square.and.arrow.up")
+            }
+            .disabled(library.subscriptions.isEmpty)
+            Button {
+                export("backup") {
+                    try Exporter.backup(subscriptions: library.subscriptions,
+                                        playlists: library.localPlaylists, history: library.history)
+                }
+            } label: {
+                Label("Export Full Backup (.json)", systemImage: "externaldrive")
+            }
         } header: {
-            Text("Import")
+            Text("Import & Export")
         } footer: {
             Text("""
             Supported files, detected automatically:
@@ -287,8 +306,24 @@ struct SettingsView: View {
             • YouTube Takeout subscriptions (.csv)
             • Text file with channel or video links (.txt)
 
+            Export Subscriptions writes NewPipe's format, which NewPipe, LibreTube, FreeTube and \
+            Aeternus can import. Export Full Backup also includes playlists, watch history and resume \
+            positions; import it here to restore everything.
+
             Using LiveContainer? If choosing a file does nothing, enable "Fix File Picker" in Aeternus's settings inside LiveContainer.
             """)
+        }
+    }
+
+    /// Writes an export to a temporary file and offers it in the share sheet ("Save to Files").
+    private func export(_ kind: String, _ make: () throws -> Data) {
+        let date = Date.now.formatted(.iso8601.year().month().day())
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("aeternus-\(kind)-\(date).json")
+        do {
+            try make().write(to: url, options: .atomic)
+            exportFile = ExportFile(url: url)
+        } catch {
+            importMessage = "Export failed: \(error.localizedDescription)"
         }
     }
 
@@ -421,6 +456,22 @@ struct HomeSectionsSettingsView: View {
         }
         .navigationTitle("Home Sections")
     }
+}
+
+struct ExportFile: Identifiable {
+    let url: URL
+    var id: URL { url }
+}
+
+/// The system share sheet, e.g. to save an export with "Save to Files".
+struct ShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }
 
 /// Hides Shorts everywhere or on chosen screens, optionally treating short videos as Shorts.

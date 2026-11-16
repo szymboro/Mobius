@@ -80,12 +80,17 @@ public enum Importer {
                 positions[id] = ms / 1000
             }
         }
-        result.history = (json["watchHistory"] as? [[String: Any]] ?? []).compactMap { item in
+        let now = Date()
+        result.history = (json["watchHistory"] as? [[String: Any]] ?? []).enumerated().compactMap { index, item in
             guard let id = item["videoId"] as? String, !id.isEmpty else { return nil }
+            // Aeternus backups carry the watch time (ms); otherwise keep the file's order, newest first.
+            let watchedAt = number(item["watchedAt"]).map { Date(timeIntervalSince1970: $0 / 1000) }
+                ?? now.addingTimeInterval(-Double(index))
             return WatchHistoryEntry(
                 videoId: id, title: item["title"] as? String, uploader: item["uploader"] as? String,
                 uploaderUrl: item["uploaderUrl"] as? String, thumbnail: item["thumbnailUrl"] as? String,
-                duration: number(item["duration"]).map { Int($0) }, position: positions[id] ?? 0
+                duration: number(item["duration"]).map { Int($0) }, watchedAt: watchedAt,
+                position: positions[id] ?? 0
             )
         }
 

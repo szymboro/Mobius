@@ -68,11 +68,8 @@ struct SubscriptionsView: View {
         // between the feed's ScrollView and the channels List.
         .safeAreaInset(edge: .top, spacing: 0) {
             if !library.subscriptions.isEmpty {
-                Picker("View", selection: $mode) {
-                    ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .modifier(FloatingPickerBackground())
+                GlassSegmentedControl(options: Mode.allCases, selection: $mode, title: \.rawValue)
+                    .padding(.vertical, 6)
             }
         }
         .navigationTitle("Subscriptions")
@@ -134,24 +131,5 @@ struct SubscriptionsView: View {
             }
         }
         .listStyle(.plain)
-    }
-}
-
-/// Liquid Glass capsule floating over the content on iOS 26 (content scrolls under it with the
-/// system's soft scroll edge); a plain bar background before.
-private struct FloatingPickerBackground: ViewModifier {
-    func body(content: Content) -> some View {
-        if #available(iOS 26, *) {
-            content
-                .padding(4)
-                .glassEffect(.regular.interactive(), in: .capsule)
-                .padding(.horizontal)
-                .padding(.vertical, 6)
-        } else {
-            content
-                .padding(.horizontal)
-                .padding(.vertical, 8)
-                .background(.bar)
-        }
     }
 }

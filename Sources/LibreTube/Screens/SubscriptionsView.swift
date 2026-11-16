@@ -63,19 +63,22 @@ struct SubscriptionsView: View {
         // Swap Feed/Channels instantly: animating between a ScrollView and a List made the bar
         // and content jump around.
         .animation(nil, value: mode)
-        .navigationTitle("Subscriptions")
-        // The segmented picker takes the title's place; a large title would collapse and expand
-        // whenever the bar re-attached to the other view's scroll view.
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
+        // The picker lives in a bar pinned above the content rather than in the navigation bar:
+        // as a toolbar item, iOS rebuilt (and morphed) it whenever the content below switched
+        // between the feed's ScrollView and the channels List.
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if !library.subscriptions.isEmpty {
                 Picker("View", selection: $mode) {
                     ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.segmented)
-                .fixedSize()
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+                .background(.bar)
             }
         }
+        .navigationTitle("Subscriptions")
+        .navigationBarTitleDisplayMode(.inline)
         .task { await library.fillMissingChannelInfo() }
         .task(id: "\(settings.instanceURL.absoluteString)|\(channelIds.joined(separator: ","))") {
             await model.load(channelIds: channelIds)

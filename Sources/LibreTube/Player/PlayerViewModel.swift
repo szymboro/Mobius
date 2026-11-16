@@ -38,6 +38,8 @@ final class PlayerViewModel: ObservableObject {
 
     private enum PlaybackKind: String {
         case none, youtubeHLS, sabr, progressive, localHLS
+        /// Audio only: a progressive audio stream (Piped source, or the SABR fallback).
+        case audioStream
     }
     enum Tab: String, CaseIterable, Identifiable {
         case related = "Related"
@@ -144,8 +146,7 @@ final class PlayerViewModel: ObservableObject {
             related = (optional(streams.relatedStreams) ?? []).map { VideoInfo($0) }.uniqued()
             fillMissingDetails(from: streams)
             phase = .loaded
-            // Audio only: start at the lowest video quality ("144p" resolves to the lowest offered).
-            await startPlayback(streams, preferredQuality: isAudioOnly ? "144p" : settings.preferredQuality)
+            await startPlayback(streams, preferredQuality: settings.preferredQuality)
             if settings.sponsorBlockEnabled, !isClosed {
                 await loadSegments(categories: Array(settings.sponsorBlockCategories))
             }
@@ -293,12 +294,13 @@ final class PlayerViewModel: ObservableObject {
 
     /// Playback order: YouTube's HLS → SABR through the local `SabrHLSServer` (on-device source,
     /// non-live) → a muxed progressive stream → HLS built on the device from the DASH files.
+    /// Audio only (non-live): SABR's audio playlist, else the audio stream itself; HLS is skipped.
     private func startPlayback(_ streams: Streams, preferredQuality: String) async {
         var item: AVPlayerItem?
         var sabrFailure: String?
         let log = PlaybackLog.shared
         log.add("streams: hls=\(streams.hls != nil) live=\(streams.isLive) video=\(streams.videoStreams.count) audio=\(streams.audioStreams.count) duration=\(streams.duration)s")
-        if let hls = optional(streams.hls), !hls.isEmpty, let url = URL(string: hls) {
+        if let hls = optional(streams.hls), !hls.isEmpty, let url = URL(string: hls), !wantsAudioStream(streams) {
             log.add("playing YouTube HLS")
             item = AVPlayerItem(url: url)
             playbackKind = .youtubeHLS
@@ -346,6 +348,11 @@ final class PlayerViewModel: ObservableObject {
         func fail(_ message: String) -> AVPlayerItem? {
             playbackError = [priorFailure, message].compactMap { $0 }.joined(separator: "\n")
             return nil
+        }
+        if wantsAudioStream(streams), let url = Self.audioURL(for: streams) {
+            PlaybackLog.shared.add("audio only: playing the audio stream")
+            playbackKind = .audioStream
+            return AVPlayerItem(url: url)
         }
         if let url = Self.playbackURL(for: streams, preferredQuality: preferredQuality) {
             playbackKind = (optional(streams.hls) ?? "").isEmpty ? .progressive : .youtubeHLS
@@ -419,13 +426,55 @@ final class PlayerViewModel: ObservableObject {
         guard enabled != isAudioOnly else { return }
         isAudioOnly = enabled
         AppSettings.shared.audioOnly = enabled
-        PlaybackLog.shared.add("audio only \(enabled ? "on" : "off")")
-        guard qualityMode != .unavailable, !qualityOptions.isEmpty else { return }
-        if enabled {
-            selectQuality(qualityOptions.last)
-        } else {
-            selectQuality(Self.resolve(Self.height(ofQuality: AppSettings.shared.preferredQuality), in: qualityOptions))
+        PlaybackLog.shared.add("audio only \(enabled ? "on" : "off") (\(playbackKind.rawValue))")
+        guard let streams, player != nil, !isClosed else { return }
+        Task { await switchAudioMode(streams) }
+    }
+
+    /// Livestreams have no separate audio stream; audio only keeps the lowest video quality there.
+    private func wantsAudioStream(_ streams: Streams) -> Bool {
+        isAudioOnly && !streams.isLive
+    }
+
+    /// Swaps the current item for the audio-only (or the regular) version at the same position.
+    private func switchAudioMode(_ streams: Streams) async {
+        switch playbackKind {
+        case .sabr:
+            guard let base = sabrMasterURL else { return }
+            if isSabrSuspended {
+                sabrNeedsReload = true
+                return
+            }
+            replaceItem(with: makeSabrItem(base: base))
+        case .youtubeHLS where streams.isLive:
+            if let item = player?.currentItem { applyQualityCap(to: item) }
+        case .youtubeHLS, .progressive, .localHLS, .audioStream:
+            let preferredQuality = AppSettings.shared.preferredQuality
+            let item: AVPlayerItem?
+            if !isAudioOnly, let hls = optional(streams.hls), !hls.isEmpty, let url = URL(string: hls) {
+                playbackKind = .youtubeHLS
+                item = AVPlayerItem(url: url)
+            } else {
+                item = await fallbackItem(streams, preferredQuality: preferredQuality, priorFailure: nil)
+            }
+            guard let item, !isClosed else { return }
+            configureQualityMenu(streams: streams, preferredQuality: preferredQuality)
+            applyQualityCap(to: item)
+            replaceItem(with: item)
+        case .none:
+            break
         }
+    }
+
+    /// Best AAC (else any) audio stream, preferring the original track over dubs.
+    static func audioURL(for streams: Streams) -> URL? {
+        let candidates = (optional(streams.audioStreams) ?? []).filter { optional($0.url) != nil }
+        func rank(_ s: PipedStream) -> (Int, Int, Int) {
+            let original = s.audioTrackType == nil || s.audioTrackType == "ORIGINAL"
+            let aac = s.mimeType == "audio/mp4" || (s.codec ?? "").hasPrefix("mp4a")
+            return (original ? 1 : 0, aac ? 1 : 0, s.bitrate ?? 0)
+        }
+        return candidates.max { rank($0) < rank($1) }.flatMap { URL(string: $0.url ?? "") }
     }
 
     // MARK: Autoplay
@@ -470,7 +519,7 @@ final class PlayerViewModel: ObservableObject {
             qualityOptions = heights
             qualityMode = heights.isEmpty ? .unavailable : .maximum
             qualitySelection = Self.resolve(preferred, in: heights)
-        case .none:
+        case .none, .audioStream:
             qualityOptions = []
             qualityMode = .unavailable
             qualitySelection = nil
@@ -482,7 +531,10 @@ final class PlayerViewModel: ObservableObject {
     /// master playlist is restricted by the server instead).
     private func applyQualityCap(to item: AVPlayerItem) {
         guard playbackKind == .youtubeHLS || playbackKind == .localHLS else { return }
-        if let height = qualitySelection {
+        if isAudioOnly, playbackKind == .youtubeHLS {
+            // Livestream in audio only: no audio-only variant, so take the smallest video.
+            item.preferredMaximumResolution = CGSize(width: 256, height: 144)
+        } else if let height = qualitySelection {
             item.preferredMaximumResolution = CGSize(width: CGFloat(height) * 16 / 9, height: CGFloat(height))
         } else {
             item.preferredMaximumResolution = .zero
@@ -505,17 +557,13 @@ final class PlayerViewModel: ObservableObject {
                 sabrNeedsReload = true
                 return
             }
-            let url = sabrItemURL(base: base)
-            log.add("loading SABR master \(url.absoluteString)")
-            let item = AVPlayerItem(url: url)
-            observeSabrItem(item)
-            replaceItem(with: item)
+            replaceItem(with: makeSabrItem(base: base))
         case .youtubeHLS, .localHLS:
             if let item = player.currentItem { applyQualityCap(to: item) }
         case .progressive:
             guard let streams, let url = Self.playbackURL(for: streams, preferredQuality: Self.qualityLabel(quality)) else { return }
             replaceItem(with: AVPlayerItem(url: url))
-        case .none:
+        case .none, .audioStream:
             break
         }
     }
@@ -649,6 +697,7 @@ final class PlayerViewModel: ObservableObject {
     private func startSabr(preferredQuality: String) async throws -> AVPlayerItem {
         let manifest = try await YouTubeExtractor.sabrManifest(videoId: videoId)
         let server = try SabrHLSServer(manifest: manifest)
+        server.audioOnly = isAudioOnly // before start(), which prefetches the first indexes
         // The session's choice starts from Settings › Preferred Quality.
         let selection = Self.resolve(Self.height(ofQuality: preferredQuality), in: server.availableQualities)
         server.selectedQuality = selection
@@ -661,7 +710,20 @@ final class PlayerViewModel: ObservableObject {
         }
         sabrServer = server
         sabrMasterURL = url
-        let item = AVPlayerItem(url: sabrItemURL(base: url))
+        return makeSabrItem(base: url)
+    }
+
+    /// The SABR item: the master playlist, or in audio only the audio media playlist alone.
+    private func makeSabrItem(base: URL) -> AVPlayerItem {
+        var url = sabrItemURL(base: base)
+        if isAudioOnly, let server = sabrServer,
+           var components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            components.path = "/\(server.audioFormat.itag).m3u8"
+            url = components.url ?? url
+        }
+        sabrServer?.audioOnly = isAudioOnly
+        PlaybackLog.shared.add("loading SABR \(isAudioOnly ? "audio playlist" : "master") \(url.absoluteString)")
+        let item = AVPlayerItem(url: url)
         observeSabrItem(item)
         return item
     }
@@ -743,8 +805,7 @@ final class PlayerViewModel: ObservableObject {
                     self.sabrNeedsReload = false
                     self.sabrMasterURL = url
                     let position = self.currentPosition()
-                    let item = AVPlayerItem(url: self.sabrItemURL(base: url))
-                    self.observeSabrItem(item)
+                    let item = self.makeSabrItem(base: url)
                     self.player?.replaceCurrentItem(with: item)
                     if position > 1 { self.seek(to: position) }
                 }

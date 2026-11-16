@@ -8,7 +8,7 @@ import Network
 /// - `/master.m3u8`: H.264 video variants plus an `EXT-X-MEDIA` audio group (default AAC track).
 ///   Lists only the variants of `selectedQuality` when one is set, else every variant up to 1080p.
 ///   Query strings are ignored, so callers can cache-bust with `/master.m3u8?q=720`.
-/// - `/<itag>.m3u8`: VOD media playlist with exact per-segment durations (built on first request)
+/// - `/<itag>.m3u8`: VOD media playlist (the audio one doubles as the audio-only entry point) with exact per-segment durations (built on first request)
 /// - `/<itag>/init.mp4`: fMP4 init segment
 /// - `/<itag>/<n>.m4s`: media segment `n` (1-based)
 ///
@@ -45,6 +45,7 @@ final class SabrHLSServer: @unchecked Sendable {
     private var stopped = true
     /// nil = Auto (adaptive up to `autoMaxQuality`).
     private var selectedQualityOnQueue: Int?
+    private var audioOnlyOnQueue = false
 
     /// Auto lists every variant up to this quality; higher ones need an explicit choice.
     static let autoMaxQuality = 1080
@@ -90,6 +91,19 @@ final class SabrHLSServer: @unchecked Sendable {
     var selectedQuality: Int? {
         get { queue.sync { selectedQualityOnQueue } }
         set { queue.sync { selectedQualityOnQueue = newValue } }
+    }
+
+    /// Audio-only playback loads `audioPlaylistURL` instead of the master playlist; with only the
+    /// audio format requested, `SabrSession` asks YouTube for audio alone. Also skips prefetching
+    /// the first video index.
+    var audioOnly: Bool {
+        get { queue.sync { audioOnlyOnQueue } }
+        set { queue.sync { audioOnlyOnQueue = newValue } }
+    }
+
+    /// The audio media playlist, playable on its own (no video is ever requested).
+    var audioPlaylistURL: URL? {
+        queue.sync { currentPort.map { URL(string: "http://127.0.0.1:\($0)/\(audioFormat.itag).m3u8")! } }
     }
 
     // MARK: Lifecycle
@@ -201,7 +215,9 @@ final class SabrHLSServer: @unchecked Sendable {
 
     private func prefetch() {
         let indexes = self.indexes
-        let first = [audioFormat] + queue.sync { listedVideos(selected: selectedQualityOnQueue).prefix(1) }
+        let first = [audioFormat] + queue.sync {
+            audioOnlyOnQueue ? [] : Array(listedVideos(selected: selectedQualityOnQueue).prefix(1))
+        }
         Task.detached(priority: .userInitiated) {
             await withTaskGroup(of: Void.self) { group in
                 for format in first {

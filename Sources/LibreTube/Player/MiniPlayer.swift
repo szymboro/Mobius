@@ -143,10 +143,12 @@ struct QualityMenu: View {
             }
             .pickerStyle(.inline)
         } label: {
-            Label(model.qualitySelection.map { "\($0)p" } ?? "Auto", systemImage: "gearshape")
+            Label(model.isAudioOnly ? "Audio" : model.qualitySelection.map { "\($0)p" } ?? "Auto",
+                  systemImage: "gearshape")
         }
         .menuStyle(.button)
-        .disabled(model.qualityMode == .unavailable)
+        // No video is streamed in audio only (livestreams aside), so there is nothing to pick.
+        .disabled(model.qualityMode == .unavailable || model.isAudioOnly)
         .accessibilityLabel("Quality")
         .accessibilityValue(model.qualitySelection.map { title(for: $0) } ?? autoTitle)
     }

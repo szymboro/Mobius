@@ -144,6 +144,8 @@ final class InlinePlayerContainer: UIViewController {
     }
 
     private var artworkHost: UIHostingController<AudioOnlyArtwork>?
+    /// Changes each time the artwork appears, so its badge shows again and then fades.
+    private var artworkToken = UUID()
 
     /// Covers the video with the thumbnail. It lives in `contentOverlayView`, which AVKit draws
     /// above the video but below its own controls, so playback controls keep working.
@@ -152,12 +154,13 @@ final class InlinePlayerContainer: UIViewController {
             artworkHost?.view.isHidden = true
             return
         }
+        if artworkHost?.view.isHidden ?? true { artworkToken = UUID() }
         _ = playerController.view // loads the controller, creating contentOverlayView
         guard let overlay = playerController.contentOverlayView else { return }
         if let host = artworkHost {
-            host.rootView = AudioOnlyArtwork(url: url)
+            host.rootView = AudioOnlyArtwork(url: url, token: artworkToken)
         } else {
-            let host = UIHostingController(rootView: AudioOnlyArtwork(url: url))
+            let host = UIHostingController(rootView: AudioOnlyArtwork(url: url, token: artworkToken))
             host.view.backgroundColor = .black
             host.view.isUserInteractionEnabled = false
             host.view.frame = overlay.bounds
@@ -192,9 +195,12 @@ final class InlinePlayerContainer: UIViewController {
     override var childForHomeIndicatorAutoHidden: UIViewController? { nil }
 }
 
-/// Thumbnail with an "Audio only" badge, in place of the video.
+/// Thumbnail with an "Audio only" badge, in place of the video. The badge fades out after a few
+/// seconds and comes back when audio only is switched on again or the video changes.
 struct AudioOnlyArtwork: View {
     let url: String?
+    let token: UUID
+    @State private var showsBadge = true
 
     var body: some View {
         ZStack {
@@ -203,13 +209,21 @@ struct AudioOnlyArtwork: View {
                 .aspectRatio(16 / 9, contentMode: .fit)
                 .overlay { RemoteImage(url: url) }
                 .clipped()
-                .opacity(0.6)
+                // Dimmed only while the badge is up, to keep it readable.
+                .opacity(showsBadge ? 0.6 : 1)
             Label("Audio only", systemImage: "headphones")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .background(.black.opacity(0.6), in: Capsule())
+                .opacity(showsBadge ? 1 : 0)
+        }
+        .task(id: "\(token)|\(url ?? "")") {
+            showsBadge = true
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.6)) { showsBadge = false }
         }
     }
 }

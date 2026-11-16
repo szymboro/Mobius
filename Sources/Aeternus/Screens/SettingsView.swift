@@ -383,7 +383,7 @@ struct SettingsView: View {
             } label: {
                 Label("Diagnostics Log", systemImage: "ladybug")
             }
-            Link("Aeternus on GitHub", destination: URL(string: "https://github.com/szymboro/LibreTubeIOS")!)
+            Link("Aeternus on GitHub", destination: URL(string: "https://github.com/szymboro/Aeternus")!)
             Link("Based on LibreTube", destination: URL(string: "https://github.com/libre-tube/LibreTube")!)
         }
     }

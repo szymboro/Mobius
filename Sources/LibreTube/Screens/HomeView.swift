@@ -254,11 +254,12 @@ private struct CarouselVideoCard: View {
     static let width: CGFloat = 250
     let video: VideoInfo
     var progress: Double? = nil
+    @ObservedObject private var deArrow = DeArrow.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             VideoThumbnail(video: video, progress: progress)
-            Text(video.title)
+            Text(video.displayTitle)
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(2, reservesSpace: true)
                 .multilineTextAlignment(.leading)

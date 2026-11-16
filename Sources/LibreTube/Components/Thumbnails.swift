@@ -33,11 +33,13 @@ struct VideoThumbnail: View {
     var progress: Double? = nil
     /// Lengths found after the list loaded show up without a reload.
     @ObservedObject private var durations = VideoDurations.shared
+    @ObservedObject private var deArrow = DeArrow.shared
+    @ObservedObject private var settings = AppSettings.shared
 
     var body: some View {
         Color.clear
             .aspectRatio(16 / 9, contentMode: .fit)
-            .overlay { RemoteImage(url: video.thumbnail) }
+            .overlay { image }
             .clipShape(.rect(cornerRadius: 12))
             .overlay(alignment: .bottomTrailing) { badge }
             .overlay(alignment: .bottom) {
@@ -51,6 +53,25 @@ struct VideoThumbnail: View {
                     .clipShape(.rect(cornerRadius: 12))
                 }
             }
+            .task(id: "\(video.videoId)|\(settings.deArrowTitles)|\(settings.deArrowThumbnails)") {
+                await deArrow.load(videoId: video.videoId)
+            }
+    }
+
+    @ViewBuilder
+    private var image: some View {
+        if let url = deArrow.thumbnailURL(for: video.videoId) {
+            // DeArrow renders frames on demand; fall back to YouTube's thumbnail if it can't.
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image): image.resizable().scaledToFill()
+                case .failure: RemoteImage(url: video.thumbnail)
+                default: Rectangle().fill(.quaternary)
+                }
+            }
+        } else {
+            RemoteImage(url: video.thumbnail)
+        }
     }
 
     private var badgeText: String? {

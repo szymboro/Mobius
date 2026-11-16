@@ -87,6 +87,8 @@ struct SettingsView: View {
             instanceSection
             contentSection
             sponsorBlockSection
+            deArrowSection
+            dislikeSection
             importSection
             historySection
             aboutSection
@@ -227,6 +229,42 @@ struct SettingsView: View {
             Text("SponsorBlock")
         } footer: {
             Text("Automatically skips crowd-sourced segments such as sponsors and intros.")
+        }
+    }
+
+    private var deArrowSection: some View {
+        Section {
+            Toggle("Replace Titles", isOn: $settings.deArrowTitles)
+            Toggle("Replace Thumbnails", isOn: $settings.deArrowThumbnails)
+            Link(destination: URL(string: "https://dearrow.ajay.app")!) {
+                Label("About DeArrow", systemImage: "info.circle")
+            }
+        } header: {
+            Text("DeArrow")
+        } footer: {
+            Text("""
+            Swaps clickbait titles and thumbnails for ones submitted and voted on by the community \
+            (from the makers of SponsorBlock). Videos nobody has fixed keep their original. Each \
+            lookup only sends a short hash prefix of the video ID, so DeArrow can't tell exactly \
+            which video you're viewing.
+            """)
+        }
+    }
+
+    private var dislikeSection: some View {
+        Section {
+            Toggle("Show Dislikes", isOn: $settings.returnYouTubeDislike)
+            Link(destination: URL(string: "https://returnyoutubedislike.com")!) {
+                Label("About Return YouTube Dislike", systemImage: "info.circle")
+            }
+        } header: {
+            Text("Return YouTube Dislike")
+        } footer: {
+            Text("""
+            Shows a dislike count under the video title. YouTube hid dislikes in 2021, so the \
+            number is an estimate from archived data and from people using the extension. The \
+            ID of each video you open is sent to returnyoutubedislikeapi.com.
+            """)
         }
     }
 

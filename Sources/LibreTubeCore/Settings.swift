@@ -29,6 +29,9 @@ public final class Settings: ObservableObject {
         static let hideShorts = "hideShorts"
         static let shortsMaxDuration = "shortsMaxDuration"
         static let hideShortsIn = "hideShortsIn"
+        static let deArrowTitles = "deArrowTitles"
+        static let deArrowThumbnails = "deArrowThumbnails"
+        static let returnYouTubeDislike = "returnYouTubeDislike"
     }
 
     private let defaults: UserDefaults
@@ -86,6 +89,21 @@ public final class Settings: ObservableObject {
     /// Where Shorts are hidden when `hideShorts` is on.
     @Published public var hideShortsIn: Set<ShortsPlace> {
         didSet { defaults.set(hideShortsIn.map(\.rawValue).sorted(), forKey: Key.hideShortsIn) }
+    }
+
+    /// Replace clickbait titles with DeArrow's crowd-sourced ones.
+    @Published public var deArrowTitles: Bool {
+        didSet { defaults.set(deArrowTitles, forKey: Key.deArrowTitles) }
+    }
+
+    /// Replace clickbait thumbnails with frames DeArrow users picked.
+    @Published public var deArrowThumbnails: Bool {
+        didSet { defaults.set(deArrowThumbnails, forKey: Key.deArrowThumbnails) }
+    }
+
+    /// Show dislike counts from Return YouTube Dislike in the player.
+    @Published public var returnYouTubeDislike: Bool {
+        didSet { defaults.set(returnYouTubeDislike, forKey: Key.returnYouTubeDislike) }
     }
 
     /// Choices for `shortsMaxDuration`, in seconds.
@@ -178,6 +196,9 @@ public final class Settings: ObservableObject {
         shortsMaxDuration = defaults.object(forKey: Key.shortsMaxDuration) as? Int ?? 0
         hideShortsIn = defaults.stringArray(forKey: Key.hideShortsIn)
             .map { Set($0.compactMap(ShortsPlace.init(rawValue:))) } ?? Set(ShortsPlace.allCases)
+        deArrowTitles = defaults.bool(forKey: Key.deArrowTitles)
+        deArrowThumbnails = defaults.bool(forKey: Key.deArrowThumbnails)
+        returnYouTubeDislike = defaults.bool(forKey: Key.returnYouTubeDislike)
         api = PipedAPI(baseURL: url)
     }
 
@@ -200,6 +221,9 @@ public final class Settings: ObservableObject {
         hideShorts = false
         shortsMaxDuration = 0
         hideShortsIn = Set(ShortsPlace.allCases)
+        deArrowTitles = false
+        deArrowThumbnails = false
+        returnYouTubeDislike = false
     }
 }
 

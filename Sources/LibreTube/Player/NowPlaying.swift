@@ -211,7 +211,7 @@ private final class NowPlayingInfo {
     private func publish() {
         guard let model, let video = model.video else { return }
         var info: [String: Any] = [
-            MPMediaItemPropertyTitle: video.title,
+            MPMediaItemPropertyTitle: video.displayTitle,
             MPMediaItemPropertyArtist: video.uploaderName ?? "",
             MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.video.rawValue,
             MPNowPlayingInfoPropertyIsLiveStream: model.streams?.isLive ?? false,

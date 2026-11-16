@@ -5,13 +5,14 @@ import LibreTubeCore
 struct VideoRow: View {
     let video: VideoInfo
     var progress: Double? = nil
+    @ObservedObject private var deArrow = DeArrow.shared
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             VideoThumbnail(video: video, progress: progress)
                 .frame(width: 160)
             VStack(alignment: .leading, spacing: 4) {
-                Text(video.title)
+                Text(video.displayTitle)
                     .font(.subheadline.weight(.semibold))
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
@@ -35,6 +36,7 @@ struct VideoRow: View {
 /// Large video card used on the Home and Subscriptions feeds.
 struct VideoCard: View {
     let video: VideoInfo
+    @ObservedObject private var deArrow = DeArrow.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -54,7 +56,7 @@ struct VideoCard: View {
                     }
                 }
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(video.title)
+                    Text(video.displayTitle)
                         .font(.subheadline.weight(.semibold))
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)

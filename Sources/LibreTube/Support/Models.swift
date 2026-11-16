@@ -184,6 +184,9 @@ enum ModelFactory {
 
 @MainActor
 extension VideoInfo {
+    /// The title to show: DeArrow's replacement when that's on and one exists.
+    var displayTitle: String { DeArrow.shared.title(for: videoId) ?? title }
+
     /// Counts as a Short under the current settings (marked as one, or short enough).
     var countsAsShort: Bool { AppSettings.shared.isShort(isShort: isShort, duration: knownDuration) }
 }

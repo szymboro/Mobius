@@ -11,6 +11,8 @@ struct PlayerView: View {
     @State private var descriptionExpanded = false
     @State private var showingAddToPlaylist = false
     @ObservedObject private var settings = AppSettings.shared
+    @ObservedObject private var deArrow = DeArrow.shared
+    @State private var votes: ReturnYouTubeDislike.Votes?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -94,15 +96,18 @@ struct PlayerView: View {
 
     private func titleSection(streams: Streams, video: VideoInfo) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(video.title)
+            Text(video.displayTitle)
                 .font(.title3.bold())
                 .textSelection(.enabled)
             HStack(spacing: 12) {
                 if let views = video.views {
                     Label(Formatters.compactCount(views), systemImage: "eye")
                 }
-                if let likes = intValue(streams.likes), likes > 0 {
+                if let likes = intValue(streams.likes).flatMap({ $0 > 0 ? $0 : nil }) ?? votes?.likes, likes > 0 {
                     Label(Formatters.compactCount(likes), systemImage: "hand.thumbsup")
+                }
+                if settings.returnYouTubeDislike, let dislikes = votes?.dislikes {
+                    Label(Formatters.compactCount(dislikes), systemImage: "hand.thumbsdown")
                 }
                 if let uploaded = TextFormatting.relativeTime(millis: video.uploadedMillis, fallback: nil) {
                     Label(uploaded, systemImage: "calendar")
@@ -110,6 +115,14 @@ struct PlayerView: View {
             }
             .font(.caption)
             .foregroundStyle(.secondary)
+        }
+        .task(id: "\(video.videoId)|\(settings.deArrowTitles)") {
+            await deArrow.load(videoId: video.videoId)
+        }
+        .task(id: "\(video.videoId)|\(settings.returnYouTubeDislike)") {
+            votes = nil
+            guard settings.returnYouTubeDislike else { return }
+            votes = try? await ReturnYouTubeDislike.votes(videoId: video.videoId)
         }
     }
 

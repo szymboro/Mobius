@@ -9,9 +9,6 @@ A private YouTube client for iPhone and iPad, without Google accounts, ads or tr
 
 </div>
 
-> **Note** <br>
-> Mobius is an independent app based on LibreTube, not an official LibreTube app (earlier called "LibreTube for iOS", then "Aeternus"). Please report problems with Mobius here, not to the LibreTube project.
-
 ## Features
 
 **Watching**

@@ -72,9 +72,7 @@ struct SubscriptionsView: View {
                     ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.segmented)
-                .padding(.horizontal)
-                .padding(.vertical, 8)
-                .background(.bar)
+                .modifier(FloatingPickerBackground())
             }
         }
         .navigationTitle("Subscriptions")
@@ -136,5 +134,24 @@ struct SubscriptionsView: View {
             }
         }
         .listStyle(.plain)
+    }
+}
+
+/// Liquid Glass capsule floating over the content on iOS 26 (content scrolls under it with the
+/// system's soft scroll edge); a plain bar background before.
+private struct FloatingPickerBackground: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 26, *) {
+            content
+                .padding(4)
+                .glassEffect(.regular.interactive(), in: .capsule)
+                .padding(.horizontal)
+                .padding(.vertical, 6)
+        } else {
+            content
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+                .background(.bar)
+        }
     }
 }

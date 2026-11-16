@@ -56,7 +56,16 @@ final class SearchViewModel: ObservableObject {
         guard !text.isEmpty else { return }
         submittedQuery = text
         suggestions = []
+        SearchHistory.shared.add(text)
         await search()
+    }
+
+    /// Back to the idle screen (recent searches), e.g. after the search field is cleared.
+    func reset() {
+        submittedQuery = ""
+        results = []
+        nextpage = nil
+        phase = nil
     }
 
     func search() async {
@@ -98,12 +107,23 @@ final class SearchViewModel: ObservableObject {
 
 struct SearchView: View {
     @StateObject private var model = SearchViewModel()
+    @ObservedObject private var history = SearchHistory.shared
 
     var body: some View {
         content
             .navigationTitle("Search")
             .searchable(text: $model.query, prompt: "Search videos, channels, playlists")
             .searchSuggestions {
+                if model.query.trimmingCharacters(in: .whitespaces).isEmpty {
+                    ForEach(history.queries.prefix(8), id: \.self) { query in
+                        Button {
+                            Task { await model.submit(query) }
+                        } label: {
+                            Label(query, systemImage: "clock.arrow.circlepath")
+                        }
+                        .foregroundStyle(.primary)
+                    }
+                }
                 ForEach(model.suggestions, id: \.self) { suggestion in
                     Button {
                         Task { await model.submit(suggestion) }
@@ -118,6 +138,9 @@ struct SearchView: View {
             }
             .task(id: model.query) {
                 await model.updateSuggestions()
+            }
+            .onChange(of: model.query) { _, query in
+                if query.isEmpty { model.reset() }
             }
             .onChange(of: model.filter) {
                 Task { await model.search() }
@@ -143,6 +166,8 @@ struct SearchView: View {
                     }
                 }
             }
+        } else if !history.queries.isEmpty {
+            recentSearches
         } else {
             ContentUnavailableView(
                 "Search",
@@ -150,6 +175,38 @@ struct SearchView: View {
                 description: Text("Find videos, channels and playlists.")
             )
         }
+    }
+
+    /// The last `SearchHistory.limit` searches; tap to search again, swipe to remove.
+    private var recentSearches: some View {
+        List {
+            Section {
+                ForEach(history.queries, id: \.self) { query in
+                    Button {
+                        Task { await model.submit(query) }
+                    } label: {
+                        Label(query, systemImage: "clock.arrow.circlepath")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                    }
+                    .foregroundStyle(.primary)
+                    .swipeActions {
+                        Button("Remove", systemImage: "trash", role: .destructive) {
+                            history.remove(query)
+                        }
+                    }
+                }
+            } header: {
+                HStack {
+                    Text("Recent Searches")
+                    Spacer()
+                    Button("Clear") { history.clear() }
+                        .font(.subheadline)
+                        .textCase(nil)
+                }
+            }
+        }
+        .listStyle(.plain)
     }
 
     private var results: some View {

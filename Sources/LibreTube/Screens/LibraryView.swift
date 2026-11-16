@@ -81,6 +81,11 @@ private struct HistoryRow: View {
         NavigationLink(value: Route.video(video.videoId)) {
             VideoRow(video: video, progress: progress(for: video))
         }
+        .swipeActions {
+            Button("Remove", systemImage: "trash", role: .destructive) {
+                LibraryStore.shared.removeFromHistory(videoId: entry.videoId)
+            }
+        }
     }
 
     private func progress(for video: VideoInfo) -> Double? {

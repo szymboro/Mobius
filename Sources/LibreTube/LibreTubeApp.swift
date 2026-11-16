@@ -4,6 +4,8 @@ import SwiftUI
 
 @main
 struct LibreTubeApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
     init() {
         // Keep audio playing with the silent switch on, in the background and in PiP.
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)

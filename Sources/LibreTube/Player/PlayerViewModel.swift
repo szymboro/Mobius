@@ -837,10 +837,28 @@ final class PlayerViewModel: ObservableObject {
 
     /// While paused in the background the app gets suspended and the local listener would die,
     /// so stop the server on purpose; playing (background audio) or PiP keeps it running.
+    /// Whether playback was running when the app started leaving the foreground.
+    private var wasPlayingOnResign = false
+
+    func appWillResignActive() {
+        wasPlayingOnResign = !isPaused
+    }
+
     func appDidEnterBackground() {
         guard !isClosed else { return }
         capturePosition()
         recordHistory()
+        if wasPlayingOnResign, !isPictureInPictureActive {
+            // Locking the screen pauses a player that is still attached to a video layer; the
+            // layers detach on backgrounding, then playback carries on with audio only.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                guard let self, !self.isClosed, self.isPaused, !self.isPictureInPictureActive,
+                      UIApplication.shared.applicationState == .background else { return }
+                PlaybackLog.shared.add("resuming playback paused by backgrounding")
+                self.play()
+            }
+            return
+        }
         guard let sabrServer, !isSabrSuspended, isPaused, !isPictureInPictureActive else { return }
         PlaybackLog.shared.add("app in background while paused: suspending local server")
         isSabrSuspended = true

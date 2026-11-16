@@ -19,13 +19,11 @@ struct PlayerController: UIViewControllerRepresentable {
         // NowPlaying publishes title, artwork and timing itself; AVKit would overwrite it.
         controller.updatesNowPlayingInfoCenter = false
         controller.delegate = context.coordinator
-        return InlinePlayerContainer(playerController: controller)
+        return InlinePlayerContainer(playerController: controller, player: player, model: model)
     }
 
     func updateUIViewController(_ container: InlinePlayerContainer, context: Context) {
-        if container.playerController.player !== player {
-            container.playerController.player = player
-        }
+        container.player = player
     }
 
     @MainActor
@@ -44,17 +42,39 @@ extension PlayerController.Coordinator: @preconcurrency AVPlayerViewControllerDe
         willBeginFullScreenPresentationWithAnimationCoordinator coordinator: any UIViewControllerTransitionCoordinator
     ) {
         model.isFullScreen = true
+        // Turn to landscape once AVKit's full-screen controller is up, even with rotation lock on.
+        coordinator.animate(alongsideTransition: nil) { context in
+            guard !context.isCancelled else { return }
+            Orientation.forceLandscape(true, in: context.viewController(forKey: .to))
+        }
     }
 
     func playerViewController(
         _ playerViewController: AVPlayerViewController,
         willEndFullScreenPresentationWithAnimationCoordinator coordinator: any UIViewControllerTransitionCoordinator
     ) {
-        model.isFullScreen = false
+        coordinator.animate(alongsideTransition: nil) { [model] context in
+            guard !context.isCancelled else { return }
+            model.isFullScreen = false
+            Orientation.forceLandscape(false, in: playerViewController)
+        }
+    }
+
+    /// Set before the app finishes backgrounding (automatic PiP), so the container keeps the
+    /// player attached for PiP instead of detaching it for background audio.
+    func playerViewControllerWillStartPictureInPicture(_ playerViewController: AVPlayerViewController) {
+        model.isPictureInPictureActive = true
     }
 
     func playerViewControllerDidStartPictureInPicture(_ playerViewController: AVPlayerViewController) {
         model.isPictureInPictureActive = true
+    }
+
+    func playerViewController(
+        _ playerViewController: AVPlayerViewController,
+        failedToStartPictureInPictureWithError error: any Error
+    ) {
+        model.isPictureInPictureActive = false
     }
 
     func playerViewControllerDidStopPictureInPicture(_ playerViewController: AVPlayerViewController) {
@@ -83,10 +103,45 @@ extension PlayerController.Coordinator: @preconcurrency AVPlayerViewControllerDe
 /// (AVKit's own full-screen presentation still manages it there).
 final class InlinePlayerContainer: UIViewController {
     let playerController: AVPlayerViewController
+    private let model: PlayerViewModel
 
-    init(playerController: AVPlayerViewController) {
+    /// The player to show; detached from the controller while backgrounded (see below).
+    var player: AVPlayer {
+        didSet { attach() }
+    }
+
+    /// AVKit pauses a player shown by an AVPlayerViewController when the app goes to the
+    /// background (e.g. the screen locks). Unless PiP takes over, detach it there so audio keeps
+    /// playing, and reattach when returning (`PlayerViewModel` resumes it if AVKit paused it).
+    private var isInBackground = UIApplication.shared.applicationState == .background
+
+    init(playerController: AVPlayerViewController, player: AVPlayer, model: PlayerViewModel) {
         self.playerController = playerController
+        self.player = player
+        self.model = model
         super.init(nibName: nil, bundle: nil)
+        let center = NotificationCenter.default
+        center.addObserver(self, selector: #selector(didEnterBackground),
+                           name: UIApplication.didEnterBackgroundNotification, object: nil)
+        center.addObserver(self, selector: #selector(willEnterForeground),
+                           name: UIApplication.willEnterForegroundNotification, object: nil)
+        attach()
+    }
+
+    private func attach() {
+        let detach = isInBackground && !model.isPictureInPictureActive
+        let target = detach ? nil : player
+        if playerController.player !== target { playerController.player = target }
+    }
+
+    @objc private func didEnterBackground() {
+        isInBackground = true
+        attach()
+    }
+
+    @objc private func willEnterForeground() {
+        isInBackground = false
+        attach()
     }
 
     @available(*, unavailable)

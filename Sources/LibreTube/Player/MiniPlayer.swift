@@ -222,6 +222,9 @@ private struct MiniPlayerContent: View {
     let style: MiniPlayerBar.Style
     /// The accessory is inline with a minimized tab bar: hide secondary details.
     let compact: Bool
+    /// The live video joins only once the bar has settled. Created mid-animation, the player
+    /// layer animated its video frame on its own and the picture flew across the screen.
+    @State private var showsVideo = false
 
     private var barHeight: CGFloat {
         switch style {
@@ -301,18 +304,25 @@ private struct MiniPlayerContent: View {
         .accessibilityAction(named: "Expand Player") { NowPlaying.shared.expand() }
     }
 
-    /// A live view of the same AVPlayer (AVPlayerViewController only exists when expanded).
+    /// A live view of the same AVPlayer (AVPlayerViewController only exists when expanded),
+    /// over the thumbnail, which shows while the bar animates in.
     private var surface: some View {
         ZStack {
             Color.black
-            if let player = model.player, !model.isAudioOnly {
+            RemoteImage(url: model.video?.thumbnail)
+            if showsVideo, let player = model.player, !model.isAudioOnly {
                 PlayerLayerView(player: player)
-            } else {
-                RemoteImage(url: model.video?.thumbnail)
+                    .transition(.opacity)
             }
         }
         .frame(width: surfaceHeight * 16 / 9, height: surfaceHeight)
         .clipShape(.rect(cornerRadius: style == .standalone ? 8 : surfaceHeight / 4))
+        .task(id: ObjectIdentifier(model)) {
+            showsVideo = false
+            try? await Task.sleep(for: .milliseconds(450)) // NowPlaying.spring settles by then
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeIn(duration: 0.2)) { showsVideo = true }
+        }
     }
 
     private var progressLine: some View {
@@ -397,6 +407,16 @@ final class PlayerLayerUIView: UIView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    /// AVPlayerLayer positions its video in a sublayer, and sublayers animate implicitly: on a
+    /// resize (e.g. the accessory turning compact) the picture slid into place from a corner.
+    override func layoutSubviews() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        super.layoutSubviews()
+        layer.layoutIfNeeded()
+        CATransaction.commit()
     }
 
     private func attach() {

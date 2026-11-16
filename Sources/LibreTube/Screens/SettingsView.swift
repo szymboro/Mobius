@@ -75,6 +75,7 @@ struct SettingsView: View {
     @State private var confirmingClearHistory = false
     @State private var importing = false
     @State private var importMessage: String?
+    @State private var showingLog = false
 
     var body: some View {
         Form {
@@ -90,7 +91,30 @@ struct SettingsView: View {
         .task {
             if instances.options.isEmpty { await instances.load() }
         }
+        // Presented from the Form (not from inside a row) so the picker's result isn't lost
+        // when the row is re-rendered.
+        .sheet(isPresented: $importing) {
+            DocumentPicker(contentTypes: Self.importTypes) { urls in
+                importing = false
+                handleImport(urls)
+            } onCancel: {
+                importing = false
+                PlaybackLog.shared.add("import: picker cancelled", "import")
+            }
+            .ignoresSafeArea()
+        }
+        .sheet(isPresented: $showingLog) { PlaybackLogView() }
+        .alert("Import", isPresented: Binding(
+            get: { importMessage != nil },
+            set: { if !$0 { importMessage = nil } }
+        )) {
+            Button("OK") { importMessage = nil }
+        } message: {
+            Text(importMessage ?? "")
+        }
     }
+
+    private static let importTypes: [UTType] = [.json, .commaSeparatedText, .plainText, .text, .data, .item]
 
     // MARK: Sections
 
@@ -199,24 +223,10 @@ struct SettingsView: View {
     private var importSection: some View {
         Section {
             Button {
+                PlaybackLog.shared.add("import: opening file picker", "import")
                 importing = true
             } label: {
                 Label("Import Subscriptions & Playlists", systemImage: "square.and.arrow.down")
-            }
-            .fileImporter(
-                isPresented: $importing,
-                allowedContentTypes: [.json, .commaSeparatedText, .plainText, .data],
-                allowsMultipleSelection: true
-            ) { result in
-                handleImport(result)
-            }
-            .alert("Import", isPresented: Binding(
-                get: { importMessage != nil },
-                set: { if !$0 { importMessage = nil } }
-            )) {
-                Button("OK") { importMessage = nil }
-            } message: {
-                Text(importMessage ?? "")
             }
         } header: {
             Text("Import")
@@ -228,28 +238,40 @@ struct SettingsView: View {
             • FreeTube profiles (.db)
             • YouTube Takeout subscriptions (.csv)
             • Text file with channel or video links (.txt)
+
+            Using LiveContainer? If choosing a file does nothing, enable "Fix File Picker" in LibreTube's settings inside LiveContainer.
             """)
         }
     }
 
-    private func handleImport(_ result: Result<[URL], Error>) {
-        switch result {
-        case .failure(let error):
-            importMessage = error.localizedDescription
-        case .success(let urls):
-            var messages: [String] = []
-            for url in urls {
-                let scoped = url.startAccessingSecurityScopedResource()
-                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-                do {
-                    let data = try Data(contentsOf: url)
-                    let parsed = try Importer.parse(data, filename: url.lastPathComponent)
-                    messages.append(library.apply(parsed))
-                } catch {
-                    messages.append("\(url.lastPathComponent): \(error.localizedDescription)")
-                }
+    private func handleImport(_ urls: [URL]) {
+        let log = PlaybackLog.shared
+        log.add("import: picked \(urls.count) file(s): \(urls.map(\.lastPathComponent).joined(separator: ", "))", "import")
+        guard !urls.isEmpty else {
+            importMessage = "No file was received from the file picker."
+            return
+        }
+        var messages: [String] = []
+        for url in urls {
+            // Copies (asCopy) live in our tmp dir; security scope is only needed for originals.
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            do {
+                let data = try Data(contentsOf: url)
+                let parsed = try Importer.parse(data, filename: url.lastPathComponent)
+                let summary = library.apply(parsed)
+                log.add("import: \(url.lastPathComponent) (\(data.count) B): \(summary)", "import")
+                messages.append(summary)
+            } catch {
+                log.add("import: \(url.lastPathComponent) failed: \(error.localizedDescription)", "import")
+                messages.append("\(url.lastPathComponent): \(error.localizedDescription)")
             }
-            importMessage = messages.joined(separator: "\n\n")
+        }
+        // Let the sheet finish dismissing before the alert is presented.
+        let message = messages.joined(separator: "\n\n")
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(400))
+            importMessage = message
         }
     }
 
@@ -272,6 +294,11 @@ struct SettingsView: View {
     private var aboutSection: some View {
         Section("About") {
             LabeledContent("Version", value: appVersion)
+            Button {
+                showingLog = true
+            } label: {
+                Label("Diagnostics Log", systemImage: "ladybug")
+            }
             Link("LibreTube on GitHub", destination: URL(string: "https://github.com/libre-tube/LibreTube")!)
         }
     }
@@ -343,5 +370,43 @@ struct HomeSectionsSettingsView: View {
             }
         }
         .navigationTitle("Home Sections")
+    }
+}
+
+/// UIKit document picker in copy mode: the chosen files are copied into the app's tmp folder,
+/// so reading them needs no security-scoped access (which is unreliable inside LiveContainer).
+struct DocumentPicker: UIViewControllerRepresentable {
+    let contentTypes: [UTType]
+    let onPick: ([URL]) -> Void
+    let onCancel: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(onPick: onPick, onCancel: onCancel) }
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: contentTypes, asCopy: true)
+        picker.allowsMultipleSelection = true
+        picker.shouldShowFileExtensions = true
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let onPick: ([URL]) -> Void
+        let onCancel: () -> Void
+
+        init(onPick: @escaping ([URL]) -> Void, onCancel: @escaping () -> Void) {
+            self.onPick = onPick
+            self.onCancel = onCancel
+        }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            onPick(urls)
+        }
+
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            onCancel()
+        }
     }
 }

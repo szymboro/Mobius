@@ -1,0 +1,428 @@
+import AVFoundation
+import LibreTubeCore
+import SwiftUI
+import UIKit
+
+// MARK: - Expanded player
+
+/// Full-screen player above the TabView. Mounted while `NowPlaying` is expanded, and also kept
+/// mounted (slid off screen) while Picture-in-Picture runs, so AVPlayerViewController and its PiP
+/// session survive minimizing.
+struct ExpandedPlayerHost: View {
+    @ObservedObject private var nowPlaying = NowPlaying.shared
+
+    var body: some View {
+        ZStack {
+            if let model = nowPlaying.model {
+                ExpandedPlayerMount(model: model, isExpanded: nowPlaying.isExpanded)
+                    .id(ObjectIdentifier(model))
+                    // Child transitions don't run when their parent is inserted, so the mount
+                    // carries the slide for a fresh open.
+                    .transition(.move(edge: .bottom))
+            }
+        }
+    }
+}
+
+private struct ExpandedPlayerMount: View {
+    @ObservedObject var model: PlayerViewModel
+    let isExpanded: Bool
+
+    var body: some View {
+        ZStack {
+            if isExpanded || model.isPictureInPictureActive {
+                ExpandedPlayer(model: model, isExpanded: isExpanded)
+                    .transition(.move(edge: .bottom))
+            }
+        }
+    }
+}
+
+private struct ExpandedPlayer: View {
+    @ObservedObject var model: PlayerViewModel
+    let isExpanded: Bool
+    @State private var dragOffset: CGFloat = 0
+    @State private var showingLog = false
+
+    var body: some View {
+        GeometryReader { proxy in
+            VStack(spacing: 0) {
+                header
+                PlayerView(model: model, dragOffset: $dragOffset)
+            }
+            .background(Color(.systemBackground).ignoresSafeArea())
+            .clipShape(.rect(cornerRadius: dragOffset > 0 ? 24 : 0))
+            .offset(y: isExpanded ? dragOffset : proxy.size.height + proxy.safeAreaInsets.bottom + proxy.safeAreaInsets.top)
+            .allowsHitTesting(isExpanded)
+            .accessibilityHidden(!isExpanded)
+        }
+        .sheet(isPresented: $showingLog) { PlaybackLogView() }
+    }
+
+    private var header: some View {
+        ZStack {
+            Capsule()
+                .fill(.secondary.opacity(0.5))
+                .frame(width: 36, height: 5)
+            HStack(spacing: 10) {
+                Button {
+                    NowPlaying.shared.minimize()
+                } label: {
+                    Image(systemName: "chevron.down")
+                        .font(.body.weight(.semibold))
+                        .glassCircle()
+                }
+                .accessibilityLabel("Minimize Player")
+                Spacer()
+                QualityMenu(model: model)
+                Button {
+                    showingLog = true
+                } label: {
+                    Image(systemName: "ladybug")
+                        .font(.body.weight(.medium))
+                        .glassCircle()
+                }
+                .accessibilityLabel("Playback Log")
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 52)
+        .contentShape(Rectangle())
+        .gesture(MinimizeDrag.gesture(offset: $dragOffset))
+    }
+}
+
+/// Drag down on the player (or its header) to minimize, with the view following the finger.
+enum MinimizeDrag {
+    @MainActor
+    static func gesture(offset: Binding<CGFloat>) -> some Gesture {
+        DragGesture(minimumDistance: 16, coordinateSpace: .global)
+            .onChanged { value in
+                let dy = value.translation.height
+                // Vertical drags only, so horizontal scrubbing in the player controls still works.
+                guard dy > 0, offset.wrappedValue > 0 || dy > abs(value.translation.width) * 1.5 else { return }
+                offset.wrappedValue = dy
+            }
+            .onEnded { value in
+                let shouldMinimize = offset.wrappedValue > 0
+                    && (value.translation.height > 140 || value.predictedEndTranslation.height > 360)
+                if shouldMinimize {
+                    NowPlaying.shared.minimize()
+                }
+                withAnimation(NowPlaying.spring) { offset.wrappedValue = 0 }
+            }
+    }
+}
+
+/// Auto plus the qualities this stream offers; a maximum for adaptive HLS.
+struct QualityMenu: View {
+    @ObservedObject var model: PlayerViewModel
+
+    var body: some View {
+        Menu {
+            Picker(selection: selection) {
+                Text(autoTitle).tag(0)
+                ForEach(model.qualityOptions, id: \.self) { quality in
+                    Text(title(for: quality)).tag(quality)
+                }
+            } label: {
+                Text(model.qualityMode == .maximum ? "Maximum Quality" : "Quality")
+            }
+            .pickerStyle(.inline)
+        } label: {
+            Image(systemName: "gearshape")
+                .font(.body.weight(.medium))
+                .glassCircle()
+        }
+        .buttonStyle(.plain)
+        .disabled(model.qualityMode == .unavailable)
+        .accessibilityLabel("Quality")
+        .accessibilityValue(model.qualitySelection.map { title(for: $0) } ?? autoTitle)
+    }
+
+    /// 0 stands for Auto.
+    private var selection: Binding<Int> {
+        Binding(
+            get: { model.qualitySelection ?? 0 },
+            set: { model.selectQuality($0 == 0 ? nil : $0) }
+        )
+    }
+
+    private var autoTitle: String {
+        guard model.qualitySelection == nil, let playing = model.playingQuality else { return "Auto" }
+        return "Auto (\(playing)p)"
+    }
+
+    private func title(for quality: Int) -> String {
+        var title = model.qualityMode == .maximum ? "Up to \(quality)p" : "\(quality)p"
+        if model.qualitySelection == quality, model.qualityMode == .maximum,
+           let playing = model.playingQuality, playing != quality {
+            title += " (playing \(playing)p)"
+        }
+        return title
+    }
+}
+
+// MARK: - Mini player bar
+
+/// The bar above the tab bar while a video is minimized. `.accessory` is the iOS 26 tab view
+/// bottom accessory, which draws its own glass; `.standalone` draws its own background.
+struct MiniPlayerBar: View {
+    enum Style {
+        case standalone
+        case accessory
+    }
+
+    var style: Style = .standalone
+    @ObservedObject private var nowPlaying = NowPlaying.shared
+
+    var body: some View {
+        if let model = nowPlaying.model, !nowPlaying.isExpanded {
+            switch style {
+            case .standalone:
+                MiniPlayerContent(model: model, clock: model.clock, style: .standalone, compact: false)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            case .accessory:
+                if #available(iOS 26, *) {
+                    AccessoryMiniPlayer(model: model)
+                } else {
+                    MiniPlayerContent(model: model, clock: model.clock, style: .standalone, compact: false)
+                }
+            }
+        }
+    }
+}
+
+@available(iOS 26, *)
+private struct AccessoryMiniPlayer: View {
+    let model: PlayerViewModel
+    @Environment(\.tabViewBottomAccessoryPlacement) private var placement
+
+    var body: some View {
+        MiniPlayerContent(model: model, clock: model.clock, style: .accessory, compact: placement == .inline)
+    }
+}
+
+private struct MiniPlayerContent: View {
+    @ObservedObject var model: PlayerViewModel
+    @ObservedObject var clock: PlaybackClock
+    let style: MiniPlayerBar.Style
+    /// The accessory is inline with a minimized tab bar: hide secondary details.
+    let compact: Bool
+
+    private var barHeight: CGFloat {
+        switch style {
+        case .standalone: 64
+        case .accessory: compact ? 36 : 48
+        }
+    }
+
+    private var surfaceHeight: CGFloat {
+        switch style {
+        case .standalone: 48
+        case .accessory: compact ? 24 : 34
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            surface
+            VStack(alignment: .leading, spacing: 2) {
+                Text(model.video?.title ?? "Loading…")
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                if !compact, let uploader = model.video?.uploaderName, !uploader.isEmpty {
+                    Text(uploader)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            Spacer(minLength: 4)
+            Button {
+                model.togglePlayPause()
+            } label: {
+                Image(systemName: clock.isPlaying ? "pause.fill" : "play.fill")
+                    .font(.title3)
+                    .frame(width: 40, height: 40)
+                    .contentShape(Rectangle())
+            }
+            .disabled(model.player == nil)
+            .accessibilityLabel(clock.isPlaying ? "Pause" : "Play")
+            if !compact {
+                Button {
+                    NowPlaying.shared.close()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.body.weight(.semibold))
+                        .frame(width: 36, height: 40)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel("Close Player")
+            }
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.primary)
+        .padding(.leading, style == .standalone ? 8 : 6)
+        .padding(.trailing, style == .standalone ? 8 : 12)
+        .frame(height: barHeight)
+        .overlay(alignment: .bottom) { progressLine }
+        .background { standaloneBackground }
+        .contentShape(Rectangle())
+        .onTapGesture { NowPlaying.shared.expand() }
+        .gesture(
+            DragGesture(minimumDistance: 12)
+                .onEnded { value in
+                    let dy = value.translation.height
+                    guard abs(dy) > abs(value.translation.width) else { return }
+                    if dy < -24 || value.predictedEndTranslation.height < -80 {
+                        NowPlaying.shared.expand()
+                    } else if dy > 24 || value.predictedEndTranslation.height > 80 {
+                        NowPlaying.shared.close()
+                    }
+                }
+        )
+        .padding(.horizontal, style == .standalone ? 8 : 0)
+        .padding(.bottom, style == .standalone ? 6 : 0)
+        .accessibilityElement(children: .contain)
+        .accessibilityAction(named: "Expand Player") { NowPlaying.shared.expand() }
+    }
+
+    /// A live view of the same AVPlayer (AVPlayerViewController only exists when expanded).
+    private var surface: some View {
+        ZStack {
+            Color.black
+            if let player = model.player {
+                PlayerLayerView(player: player)
+            } else {
+                RemoteImage(url: model.video?.thumbnail)
+            }
+        }
+        .frame(width: surfaceHeight * 16 / 9, height: surfaceHeight)
+        .clipShape(.rect(cornerRadius: style == .standalone ? 8 : surfaceHeight / 4))
+    }
+
+    private var progressLine: some View {
+        GeometryReader { proxy in
+            Capsule()
+                .fill(.tint)
+                .frame(width: proxy.size.width * clock.progress, height: 2)
+        }
+        .frame(height: 2)
+        .padding(.horizontal, style == .standalone ? 10 : 18)
+        .padding(.bottom, style == .standalone ? 1 : 2)
+        .opacity(clock.duration > 0 && !(model.streams?.isLive ?? false) ? 1 : 0)
+        .allowsHitTesting(false)
+    }
+
+    @ViewBuilder
+    private var standaloneBackground: some View {
+        if style == .standalone {
+            let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+            if #available(iOS 26, *) {
+                Color.clear.glassEffect(.regular, in: shape)
+            } else {
+                shape
+                    .fill(.regularMaterial)
+                    .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
+            }
+        }
+    }
+}
+
+// MARK: - Video surface
+
+/// Plain `AVPlayerLayer` on the shared AVPlayer (one player can drive several layers).
+struct PlayerLayerView: UIViewRepresentable {
+    let player: AVPlayer
+
+    func makeUIView(context: Context) -> PlayerLayerUIView {
+        let view = PlayerLayerUIView()
+        view.player = player
+        return view
+    }
+
+    func updateUIView(_ view: PlayerLayerUIView, context: Context) {
+        view.player = player
+    }
+
+    static func dismantleUIView(_ view: PlayerLayerUIView, coordinator: ()) {
+        view.player = nil
+    }
+}
+
+final class PlayerLayerUIView: UIView {
+    override static var layerClass: AnyClass { AVPlayerLayer.self }
+
+    private var playerLayer: AVPlayerLayer {
+        // swiftlint:disable:next force_cast
+        layer as! AVPlayerLayer
+    }
+
+    var player: AVPlayer? {
+        didSet {
+            guard oldValue !== player else { return }
+            attach()
+        }
+    }
+
+    /// iOS pauses an AVPlayer that renders into a layer when the app goes to the background, so
+    /// detach while backgrounded to keep audio playing (as Apple's background-playback guide says).
+    private var isInBackground = UIApplication.shared.applicationState == .background
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .black
+        playerLayer.videoGravity = .resizeAspect
+        let center = NotificationCenter.default
+        center.addObserver(self, selector: #selector(didEnterBackground),
+                           name: UIApplication.didEnterBackgroundNotification, object: nil)
+        center.addObserver(self, selector: #selector(willEnterForeground),
+                           name: UIApplication.willEnterForegroundNotification, object: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private func attach() {
+        let target = isInBackground ? nil : player
+        if playerLayer.player !== target { playerLayer.player = target }
+    }
+
+    @objc private func didEnterBackground() {
+        isInBackground = true
+        attach()
+    }
+
+    @objc private func willEnterForeground() {
+        isInBackground = false
+        attach()
+    }
+}
+
+// MARK: - Glass
+
+extension View {
+    /// A small circular control: interactive Liquid Glass on iOS 26, a material circle before.
+    func glassCircle(size: CGFloat = 40) -> some View {
+        modifier(GlassCircle(size: size))
+    }
+}
+
+private struct GlassCircle: ViewModifier {
+    let size: CGFloat
+
+    func body(content: Content) -> some View {
+        let sized = content
+            .frame(width: size, height: size)
+            .contentShape(Circle())
+        if #available(iOS 26, *) {
+            sized.glassEffect(.regular.interactive(), in: .circle)
+        } else {
+            sized.background(.regularMaterial, in: Circle())
+        }
+    }
+}

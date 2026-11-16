@@ -1,0 +1,136 @@
+import Foundation
+#if canImport(Combine)
+import Combine
+#endif
+
+/// User preferences, persisted to `UserDefaults`.
+@MainActor
+public final class Settings: ObservableObject {
+    public static let shared = Settings()
+
+    public static let defaultSponsorBlockCategories: Set<String> = ["sponsor"]
+    /// All SponsorBlock categories, in display order.
+    public static let allSponsorBlockCategories: [String] = [
+        "sponsor", "selfpromo", "interaction", "intro", "outro", "preview",
+        "music_offtopic", "filler",
+    ]
+    public static let qualityOptions: [String] = ["auto", "2160p", "1440p", "1080p", "720p", "480p", "360p", "240p", "144p"]
+
+    private enum Key {
+        static let instanceURL = "instanceURL"
+        static let region = "region"
+        static let sponsorBlockEnabled = "sponsorBlockEnabled"
+        static let sponsorBlockCategories = "sponsorBlockCategories"
+        static let preferredQuality = "preferredQuality"
+        static let streamSource = "streamSource"
+        static let homeContent = "homeContent"
+    }
+
+    private let defaults: UserDefaults
+
+    @Published public var instanceURL: URL {
+        didSet {
+            defaults.set(instanceURL.absoluteString, forKey: Key.instanceURL)
+            if oldValue != instanceURL {
+                api = PipedAPI(baseURL: instanceURL)
+            }
+        }
+    }
+
+    @Published public var region: String {
+        didSet { defaults.set(region, forKey: Key.region) }
+    }
+
+    @Published public var sponsorBlockEnabled: Bool {
+        didSet { defaults.set(sponsorBlockEnabled, forKey: Key.sponsorBlockEnabled) }
+    }
+
+    @Published public var sponsorBlockCategories: Set<String> {
+        didSet { defaults.set(sponsorBlockCategories.sorted(), forKey: Key.sponsorBlockCategories) }
+    }
+
+    @Published public var preferredQuality: String {
+        didSet { defaults.set(preferredQuality, forKey: Key.preferredQuality) }
+    }
+
+    /// Where video streams come from. Lists, search, channels and comments always use Piped.
+    @Published public var streamSource: StreamSource {
+        didSet { defaults.set(streamSource.rawValue, forKey: Key.streamSource) }
+    }
+
+    /// Resolves playable streams for a video from the selected `streamSource`.
+    public func streams(videoId: String) async throws -> Streams {
+        switch streamSource {
+        case .onDevice: try await YouTubeExtractor.streams(videoId: videoId)
+        case .piped: try await api.streams(videoId: videoId)
+        }
+    }
+
+    /// What the Home tab shows.
+    @Published public var homeContent: HomeContent {
+        didSet { defaults.set(homeContent.rawValue, forKey: Key.homeContent) }
+    }
+
+    /// Latest videos from the given channels: Piped's feed endpoint, falling back to
+    /// YouTube's per-channel RSS feeds when the instance fails.
+    public func subscriptionFeed(channelIds: [String]) async throws -> [StreamItem] {
+        guard !channelIds.isEmpty else { return [] }
+        do {
+            return try await api.feed(channelIds: channelIds)
+        } catch {
+            if error is CancellationError { throw error }
+            let items = await YouTubeRSS.feed(channelIds: channelIds)
+            if items.isEmpty { throw error }
+            return items
+        }
+    }
+
+    /// API client for the current instance; rebuilt whenever `instanceURL` changes.
+    public private(set) var api: PipedAPI
+
+    public init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        let url = defaults.string(forKey: Key.instanceURL).flatMap(URL.init(string:)) ?? PipedAPI.defaultInstanceURL
+        instanceURL = url
+        region = defaults.string(forKey: Key.region) ?? "US"
+        sponsorBlockEnabled = defaults.object(forKey: Key.sponsorBlockEnabled) as? Bool ?? true
+        if let stored = defaults.stringArray(forKey: Key.sponsorBlockCategories) {
+            sponsorBlockCategories = Set(stored)
+        } else {
+            sponsorBlockCategories = Settings.defaultSponsorBlockCategories
+        }
+        preferredQuality = defaults.string(forKey: Key.preferredQuality) ?? "auto"
+        streamSource = defaults.string(forKey: Key.streamSource).flatMap(StreamSource.init(rawValue:)) ?? .onDevice
+        homeContent = defaults.string(forKey: Key.homeContent).flatMap(HomeContent.init(rawValue:)) ?? .trending
+        api = PipedAPI(baseURL: url)
+    }
+
+    /// Categories to request from SponsorBlock, or empty when disabled.
+    public var activeSponsorBlockCategories: [String] {
+        sponsorBlockEnabled ? sponsorBlockCategories.sorted() : []
+    }
+
+    /// Restores all defaults.
+    public func reset() {
+        instanceURL = PipedAPI.defaultInstanceURL
+        region = "US"
+        sponsorBlockEnabled = true
+        sponsorBlockCategories = Settings.defaultSponsorBlockCategories
+        preferredQuality = "auto"
+        streamSource = .onDevice
+        homeContent = .trending
+    }
+}
+
+public enum HomeContent: String, CaseIterable, Codable, Sendable, Identifiable {
+    case trending
+    case subscriptions
+
+    public var id: String { rawValue }
+    public var title: String {
+        switch self {
+        case .trending: "Trending"
+        case .subscriptions: "Subscriptions"
+        }
+    }
+}

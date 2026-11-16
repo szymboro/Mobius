@@ -70,6 +70,7 @@ struct SubscriptionsView: View {
                 .fixedSize()
             }
         }
+        .task { await library.fillMissingChannelInfo() }
         .task(id: "\(settings.instanceURL.absoluteString)|\(channelIds.joined(separator: ","))") {
             await model.load(channelIds: channelIds)
         }
@@ -85,7 +86,7 @@ struct SubscriptionsView: View {
                     LazyVStack(spacing: 20) {
                         ForEach(model.videos) { video in
                             NavigationLink(value: Route.video(video.videoId)) {
-                                VideoCard(video: video)
+                                VideoCard(video: withAvatar(video))
                             }
                             .buttonStyle(.plain)
                         }
@@ -95,6 +96,15 @@ struct SubscriptionsView: View {
                 .refreshable { await model.load(channelIds: ids) }
             }
         }
+    }
+
+    /// Avatars looked up after the feed loaded (see `fillMissingChannelInfo`) still show up.
+    private func withAvatar(_ video: VideoInfo) -> VideoInfo {
+        guard video.uploaderAvatar?.isEmpty ?? true, let id = video.channelId,
+              let avatar = library.subscriptions.first(where: { $0.channelId == id })?.avatar else { return video }
+        var video = video
+        video.uploaderAvatar = avatar
+        return video
     }
 
     private var channels: some View {

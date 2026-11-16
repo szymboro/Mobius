@@ -28,7 +28,8 @@ struct VideoInfo: Hashable, Identifiable {
         return id.isEmpty ? nil : id
     }
 
-    var isLive: Bool { !isShort && (duration ?? 0) <= 0 }
+    /// Live items carry a non-positive duration (-1); RSS items have none at all and aren't live.
+    var isLive: Bool { !isShort && (duration.map { $0 <= 0 } ?? false) }
 
     var metadataLine: String {
         [TextFormatting.views(views), TextFormatting.relativeTime(millis: uploadedMillis, fallback: uploadedText)]

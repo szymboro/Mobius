@@ -69,6 +69,50 @@ public final class LibraryStore: ObservableObject {
         scheduleSave()
     }
 
+    private var isFillingChannelInfo = false
+
+    /// Imports from NewPipe, Takeout or URL lists carry no avatars (and sometimes no names).
+    /// Looks those channels up (InnerTube, Piped as fallback) and stores what's missing.
+    public func fillMissingChannelInfo() async {
+        guard !isFillingChannelInfo else { return }
+        let missing = subscriptions
+            .filter { ($0.avatar?.isEmpty ?? true) || $0.name.isEmpty }
+            .map(\.channelId)
+            .filter { !$0.isEmpty }
+        guard !missing.isEmpty else { return }
+        isFillingChannelInfo = true
+        defer { isFillingChannelInfo = false }
+
+        let api = Settings.shared.api
+        let lookup: @Sendable (String) async -> (String, Channel?) = { id in
+            if let channel = try? await YouTubeInnerTube.channel(id: id), channel.avatarUrl != nil {
+                return (id, channel)
+            }
+            return (id, try? await api.channel(id: id))
+        }
+        await withTaskGroup(of: (String, Channel?).self) { group in
+            var pending = missing.makeIterator()
+            for _ in 0..<6 {
+                if let id = pending.next() { group.addTask { await lookup(id) } }
+            }
+            while let (id, result) = await group.next() {
+                if let next = pending.next() { group.addTask { await lookup(next) } }
+                guard let channel = result,
+                      let index = subscriptions.firstIndex(where: { $0.channelId == id }) else { continue }
+                var sub = subscriptions[index]
+                if sub.avatar?.isEmpty ?? true, let avatar = channel.avatarUrl, !avatar.isEmpty { sub.avatar = avatar }
+                if sub.name.isEmpty, let name = channel.name, !name.isEmpty { sub.name = name }
+                if channel.verified { sub.verified = true }
+                if sub != subscriptions[index] {
+                    subscriptions[index] = sub
+                    scheduleSave()
+                }
+            }
+        }
+        subscriptions.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        scheduleSave()
+    }
+
     /// Channel ids of all subscriptions (for `PipedAPI.feed`).
     public var subscribedChannelIds: [String] {
         subscriptions.map(\.channelId)

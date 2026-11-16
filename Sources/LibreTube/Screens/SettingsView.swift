@@ -260,6 +260,7 @@ struct SettingsView: View {
                 let data = try Data(contentsOf: url)
                 let parsed = try Importer.parse(data, filename: url.lastPathComponent)
                 let summary = library.apply(parsed)
+                Task { await library.fillMissingChannelInfo() }
                 log.add("import: \(url.lastPathComponent) (\(data.count) B): \(summary)", "import")
                 messages.append(summary)
             } catch {

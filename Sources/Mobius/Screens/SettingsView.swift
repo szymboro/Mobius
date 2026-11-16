@@ -384,7 +384,6 @@ struct SettingsView: View {
                 Label("Diagnostics Log", systemImage: "ladybug")
             }
             Link("Mobius on GitHub", destination: URL(string: "https://github.com/szymboro/Mobius")!)
-            Link("Based on LibreTube", destination: URL(string: "https://github.com/libre-tube/LibreTube")!)
         }
     }
 

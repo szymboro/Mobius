@@ -79,6 +79,10 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
+            Section {
+                SettingsLogoHeader(version: appVersion)
+            }
+            .listRowBackground(Color.clear)
             streamSourceSection
             instanceSection
             contentSection

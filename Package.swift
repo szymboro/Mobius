@@ -17,6 +17,9 @@ let package = Package(
                 // iOS run the app in compatibility mode (old keyboard, no Liquid Glass). Record the
                 // SDK we actually build against.
                 .unsafeFlags(["-Xlinker", "-platform_version", "-Xlinker", "ios", "-Xlinker", "17.0", "-Xlinker", "27.2"]),
+                // Keep Objective-C classes nothing references directly, e.g. ones looked up with
+                // NSClassFromString (see SettingsLogoExtra); a static archive would drop them.
+                .unsafeFlags(["-Xlinker", "-ObjC"]),
             ]
         ),
     ]

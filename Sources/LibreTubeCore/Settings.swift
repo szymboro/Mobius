@@ -138,7 +138,12 @@ public final class Settings: ObservableObject {
         let subscriptions = Dictionary(
             LibraryStore.shared.subscriptions.map { ($0.channelId, $0) }, uniquingKeysWith: { a, _ in a }
         )
-        return merged.map { item in
+        let durations = VideoDurations.shared
+        durations.record(merged)
+        let items = durations.applying(to: merged)
+        // RSS has no lengths: look them up in the background; thumbnails update as they arrive.
+        Task { await durations.fill(items) }
+        return items.map { item in
             var item = item
             if let channelId = item.uploaderChannelId, let sub = subscriptions[channelId] {
                 if item.uploaderAvatar?.isEmpty ?? true { item.uploaderAvatar = sub.avatar }

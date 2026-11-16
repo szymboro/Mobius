@@ -37,6 +37,7 @@ struct SubscriptionsView: View {
     @StateObject private var model = FeedViewModel()
     @ObservedObject private var library = LibraryStore.shared
     @ObservedObject private var settings = AppSettings.shared
+    @ObservedObject private var durations = VideoDurations.shared
     @State private var mode: Mode = .feed
 
     private var channelIds: [String] {

@@ -31,6 +31,8 @@ struct RemoteImage: View {
 struct VideoThumbnail: View {
     let video: VideoInfo
     var progress: Double? = nil
+    /// Lengths found after the list loaded show up without a reload.
+    @ObservedObject private var durations = VideoDurations.shared
 
     var body: some View {
         Color.clear
@@ -53,7 +55,7 @@ struct VideoThumbnail: View {
 
     private var badgeText: String? {
         if video.isLive { return "LIVE" }
-        guard let duration = video.duration else { return nil }
+        guard let duration = video.knownDuration, duration > 0 else { return nil }
         return Formatters.duration(duration)
     }
 

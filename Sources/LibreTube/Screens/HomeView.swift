@@ -54,6 +54,7 @@ final class HomeViewModel: ObservableObject {
 struct HomeView: View {
     @StateObject private var model = HomeViewModel()
     @ObservedObject private var settings = AppSettings.shared
+    @ObservedObject private var durations = VideoDurations.shared
     @ObservedObject private var library = LibraryStore.shared
 
     private var channelIds: [String] { library.subscriptions.map(\.channelId) }
@@ -310,6 +311,7 @@ struct VideoListView: View {
     @StateObject private var model = HomeViewModel()
     @ObservedObject private var library = LibraryStore.shared
     @ObservedObject private var settings = AppSettings.shared
+    @ObservedObject private var durations = VideoDurations.shared
 
     var body: some View {
         let phase = source == .subscriptions ? model.featuredPhase : model.liveNowPhase

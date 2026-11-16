@@ -8,7 +8,7 @@ import FoundationXML
 
 /// Subscription feed built from YouTube's public per-channel RSS feeds
 /// (`/feeds/videos.xml?channel_id=`). Used when the Piped feed endpoint fails.
-/// RSS has no durations, so videos show without a length badge.
+/// RSS has no durations; `VideoDurations` looks them up afterwards.
 public enum YouTubeRSS {
     public static func feed(channelIds: [String], session: URLSession = .shared) async -> [StreamItem] {
         await withTaskGroup(of: [StreamItem].self) { group in

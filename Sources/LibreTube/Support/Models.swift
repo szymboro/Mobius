@@ -28,6 +28,9 @@ struct VideoInfo: Hashable, Identifiable {
         return id.isEmpty ? nil : id
     }
 
+    /// `duration`, or the length looked up later for sources without one (see `VideoDurations`).
+    @MainActor var knownDuration: Int? { duration ?? VideoDurations.shared.duration(for: videoId) }
+
     /// Live items carry a non-positive duration (-1); RSS items have none at all and aren't live.
     var isLive: Bool { !isShort && (duration.map { $0 <= 0 } ?? false) }
 
@@ -182,7 +185,7 @@ enum ModelFactory {
 @MainActor
 extension VideoInfo {
     /// Counts as a Short under the current settings (marked as one, or short enough).
-    var countsAsShort: Bool { AppSettings.shared.isShort(isShort: isShort, duration: duration) }
+    var countsAsShort: Bool { AppSettings.shared.isShort(isShort: isShort, duration: knownDuration) }
 }
 
 @MainActor

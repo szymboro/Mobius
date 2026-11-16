@@ -296,6 +296,25 @@ final class PlayerViewModel: ObservableObject {
     /// non-live) → a muxed progressive stream → HLS built on the device from the DASH files.
     /// Audio only (non-live): SABR's audio playlist, else the audio stream itself; HLS is skipped.
     private func startPlayback(_ streams: Streams, preferredQuality: String) async {
+        guard let item = await makeItem(streams, preferredQuality: preferredQuality), !isClosed else { return }
+        configureQualityMenu(streams: streams, preferredQuality: preferredQuality)
+        applyQualityCap(to: item)
+        activateAudioSession()
+        let player = AVPlayer(playerItem: item)
+        self.player = player
+        observeDiagnostics(player)
+        observePlayback(player)
+        observeLifecycle()
+
+        if let resume = resumePosition(duration: intValue(streams.duration)) {
+            seek(to: resume)
+        }
+        player.play()
+        addTimeObserver()
+    }
+
+    /// Picks the source in the order above and builds its item (nil when nothing is playable).
+    private func makeItem(_ streams: Streams, preferredQuality: String) async -> AVPlayerItem? {
         var item: AVPlayerItem?
         var sabrFailure: String?
         let log = PlaybackLog.shared
@@ -311,35 +330,109 @@ final class PlayerViewModel: ObservableObject {
                 playbackKind = .sabr
                 log.add("SABR ready in \(String(format: "%.1f", Date().timeIntervalSince(started)))s")
             } catch {
-                guard !isCancellation(error), !isClosed else { return }
+                guard !isCancellation(error), !isClosed else { return nil }
                 sabrFailure = "SABR streaming failed: \(Self.describe(error))"
                 log.add(sabrFailure ?? "")
             }
         }
-        guard !isClosed else { return }
+        guard !isClosed else { return nil }
         if item == nil {
             log.add("using fallback stream (progressive or on-device HLS; YouTube may cut this off after ~70 s)")
             item = await fallbackItem(streams, preferredQuality: preferredQuality, priorFailure: sabrFailure)
         }
-        guard let item, !isClosed else { return }
+        guard let item, !isClosed else { return nil }
         if let sabrFailure {
             // Playing from the fallback; keep the reason visible for a moment.
             playbackError = sabrFailure
             showNotice(sabrFailure + " Using fallback stream.", for: 6)
         }
-        configureQualityMenu(streams: streams, preferredQuality: preferredQuality)
-        applyQualityCap(to: item)
-        activateAudioSession()
-        let player = AVPlayer(playerItem: item)
-        self.player = player
-        observeDiagnostics(player)
-        observePlayback(player)
+        return item
+    }
 
-        if let resume = resumePosition(duration: intValue(streams.duration)) {
-            seek(to: resume)
+    // MARK: Stream refresh
+
+    /// Paused longer than this, the stream is rebuilt on resume: YouTube stops serving an idle
+    /// SABR session (and stream URLs age), and AVPlayer then just stalls or fails.
+    static let staleAfter: TimeInterval = 120
+    /// Waiting to play this long counts as a dead stream.
+    static let stallTimeout: TimeInterval = 12
+
+    private var pausedAt: Date?
+    private var stallTask: Task<Void, Never>?
+    private var isRefreshing = false
+    /// One automatic refresh per failure streak, so a broken video doesn't loop.
+    private var refreshAttempts = 0
+
+    /// Fetches fresh streams and rebuilds the item (new SABR session) at the current position.
+    private func refreshStream(reason: String, thenPlay: Bool) async {
+        guard !isRefreshing, !isClosed, let player, streams != nil else { return }
+        isRefreshing = true
+        defer { isRefreshing = false }
+        refreshAttempts += 1
+        let position = currentPosition()
+        PlaybackLog.shared.add("refreshing stream at \(String(format: "%.1f", position))s: \(reason)")
+        player.pause()
+        sabrItemObservation = nil
+        sabrServer?.stop()
+        sabrServer = nil
+        sabrMasterURL = nil
+        isSabrSuspended = false
+        sabrNeedsReload = false
+        localHLSLoader = nil
+
+        let settings = AppSettings.shared
+        if let fresh = try? await settings.streams(videoId: videoId), !isClosed {
+            streams = fresh
         }
-        player.play()
-        addTimeObserver()
+        guard let streams, !isClosed,
+              let item = await makeItem(streams, preferredQuality: settings.preferredQuality), !isClosed else { return }
+        configureQualityMenu(streams: streams, preferredQuality: settings.preferredQuality)
+        applyQualityCap(to: item)
+        player.replaceCurrentItem(with: item)
+        if position > 1 { seek(to: position) }
+        pausedAt = thenPlay ? nil : Date()
+        if thenPlay {
+            activateAudioSession()
+            player.play()
+        }
+        playingQuality = nil
+        onEvent?(.playback)
+    }
+
+    /// Resuming after a long pause, or a stall that doesn't clear, gets a fresh stream.
+    private func checkStreamHealth() {
+        guard let player, !isClosed, !isRefreshing else { return }
+        let status = player.timeControlStatus
+        if status != .paused, let pausedAt, Date().timeIntervalSince(pausedAt) > Self.staleAfter {
+            self.pausedAt = nil
+            // An idle SABR session is dead even if a few buffered seconds still play; other
+            // streams only need a refresh once they actually stall.
+            if playbackKind == .sabr || status == .waitingToPlayAtSpecifiedRate {
+                Task { await refreshStream(reason: "resumed after a long pause", thenPlay: true) }
+                return
+            }
+        }
+        switch status {
+        case .paused:
+            stallTask?.cancel()
+            if pausedAt == nil { pausedAt = Date() }
+        case .playing:
+            stallTask?.cancel()
+            refreshAttempts = 0
+            pausedAt = nil
+        case .waitingToPlayAtSpecifiedRate:
+            pausedAt = nil
+            guard stallTask == nil || stallTask?.isCancelled == true, refreshAttempts < 2 else { return }
+            stallTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(Self.stallTimeout))
+                guard let self, !Task.isCancelled, !self.isClosed,
+                      self.player?.timeControlStatus == .waitingToPlayAtSpecifiedRate else { return }
+                self.stallTask = nil
+                await self.refreshStream(reason: "stalled for \(Int(Self.stallTimeout))s", thenPlay: true)
+            }
+        @unknown default:
+            break
+        }
     }
 
     /// The pre-SABR path: a muxed progressive stream, else LocalHLS. Sets `playbackError` and
@@ -679,6 +772,7 @@ final class PlayerViewModel: ObservableObject {
         guard let player, !isClosed else { return }
         let playing = player.rate != 0
         if clock.isPlaying != playing { clock.isPlaying = playing }
+        checkStreamHealth()
         onEvent?(.playback)
     }
 
@@ -756,6 +850,11 @@ final class PlayerViewModel: ObservableObject {
         if isSabrSuspended {
             // Expected: the server was stopped on purpose. Rebuild when it is resumed.
             sabrNeedsReload = true
+            return
+        }
+        if refreshAttempts == 0 {
+            // Usually an expired session: a fresh one plays on. Fall back only if that fails too.
+            await refreshStream(reason: "SABR item failed", thenPlay: !isPaused || pausedAt == nil)
             return
         }
         let position = currentPosition()
@@ -925,6 +1024,9 @@ final class PlayerViewModel: ObservableObject {
         loadTask = nil
         removeTimeObserver()
         removeObservers()
+        lifecycleObservers.forEach(NotificationCenter.default.removeObserver)
+        lifecycleObservers = []
+        stallTask?.cancel()
         player?.pause()
         player?.replaceCurrentItem(with: nil)
         player = nil
@@ -940,16 +1042,32 @@ final class PlayerViewModel: ObservableObject {
     /// so stop the server on purpose; playing (background audio) or PiP keeps it running.
     /// Whether playback was running when the app started leaving the foreground.
     private var wasPlayingOnResign = false
+    private var lifecycleObservers: [NSObjectProtocol] = []
 
-    func appWillResignActive() {
-        wasPlayingOnResign = !isPaused
+    /// UIKit's will-resign-active fires exactly once on the way out (SwiftUI's scene phase also
+    /// reports "inactive" on the way back in, and can skip it when locking), so the play/pause
+    /// state captured here is what the user left.
+    private func observeLifecycle() {
+        guard lifecycleObservers.isEmpty else { return }
+        lifecycleObservers = [
+            NotificationCenter.default.addObserver(
+                forName: UIApplication.willResignActiveNotification, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, !self.isClosed else { return }
+                    self.wasPlayingOnResign = !self.isPaused
+                }
+            },
+        ]
     }
 
     func appDidEnterBackground() {
         guard !isClosed else { return }
         capturePosition()
         recordHistory()
-        if wasPlayingOnResign, !isPictureInPictureActive {
+        let resume = wasPlayingOnResign
+        wasPlayingOnResign = false
+        if resume, !isPictureInPictureActive {
             // Locking the screen pauses a player that is still attached to a video layer; the
             // layers detach on backgrounding, then playback carries on with audio only.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
@@ -967,6 +1085,7 @@ final class PlayerViewModel: ObservableObject {
     }
 
     func appDidBecomeActive() {
+        wasPlayingOnResign = false
         guard !isClosed else { return }
         resumeSabrIfNeeded()
     }

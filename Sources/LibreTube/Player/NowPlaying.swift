@@ -107,7 +107,6 @@ final class NowPlaying: ObservableObject {
 
     func scenePhaseChanged(_ phase: ScenePhase) {
         switch phase {
-        case .inactive: model?.appWillResignActive()
         case .background: model?.appDidEnterBackground()
         case .active: model?.appDidBecomeActive()
         default: break

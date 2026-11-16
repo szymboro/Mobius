@@ -18,7 +18,7 @@ final class PlaylistViewModel: ObservableObject {
     func load() async {
         if playlist == nil { phase = .loading }
         do {
-            let playlist = try await AppSettings.shared.api.playlist(id: playlistId)
+            let playlist = try await fetchPlaylist()
             self.playlist = playlist
             videos = (optional(playlist.relatedStreams) ?? []).map { VideoInfo($0) }.uniqued()
             nextpage = optional(playlist.nextpage)
@@ -34,11 +34,49 @@ final class PlaylistViewModel: ObservableObject {
         isLoadingMore = true
         defer { isLoadingMore = false }
         do {
-            let next = try await AppSettings.shared.api.playlistNextPage(id: playlistId, nextpage: page)
+            // Continuation tokens only work with the backend that issued them.
+            let next = usesInnerTube
+                ? try await YouTubeInnerTube.playlistNextPage(nextpage: page)
+                : try await AppSettings.shared.api.playlistNextPage(id: playlistId, nextpage: page)
             videos.appendUnique((optional(next.relatedStreams) ?? []).map { VideoInfo($0) })
             nextpage = optional(next.nextpage)
         } catch {
             // Keep the token; the sentinel retries when it reappears.
+        }
+    }
+
+    /// Whether `playlist` (and so `nextpage`) came from YouTube's InnerTube API rather than Piped.
+    private var usesInnerTube = false
+
+    /// On-device source: InnerTube first, Piped as fallback; Piped source: the other way round.
+    /// Album ("OLAK5uy_…") and YouTube Music mix ("RDCLAK…") playlists often only work on YouTube.
+    private func fetchPlaylist() async throws -> Playlist {
+        let api = AppSettings.shared.api
+        let innerTubeFirst = AppSettings.shared.streamSource == .onDevice
+        var empty: Playlist?
+        do {
+            let playlist = innerTubeFirst
+                ? try await YouTubeInnerTube.playlist(id: playlistId)
+                : try await api.playlist(id: playlistId)
+            usesInnerTube = innerTubeFirst
+            if !playlist.relatedStreams.isEmpty { return playlist }
+            empty = playlist
+        } catch {
+            if isCancellation(error) { throw error }
+        }
+        do {
+            let playlist = innerTubeFirst
+                ? try await api.playlist(id: playlistId)
+                : try await YouTubeInnerTube.playlist(id: playlistId)
+            usesInnerTube = !innerTubeFirst
+            return playlist
+        } catch {
+            // A genuinely empty playlist from the first source beats an error from the second.
+            if let empty, !isCancellation(error) {
+                usesInnerTube = innerTubeFirst
+                return empty
+            }
+            throw error
         }
     }
 

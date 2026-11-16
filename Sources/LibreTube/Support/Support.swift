@@ -25,6 +25,11 @@ enum LoadPhase: Equatable {
     case loading
     case loaded
     case failed(String)
+
+    var isFailed: Bool {
+        if case .failed = self { return true }
+        return false
+    }
 }
 
 func isCancellation(_ error: any Error) -> Bool {

@@ -108,6 +108,7 @@ final class SearchViewModel: ObservableObject {
 struct SearchView: View {
     @StateObject private var model = SearchViewModel()
     @ObservedObject private var history = SearchHistory.shared
+    @ObservedObject private var settings = AppSettings.shared
 
     var body: some View {
         content
@@ -211,7 +212,7 @@ struct SearchView: View {
 
     private var results: some View {
         List {
-            ForEach(model.results) { item in
+            ForEach(model.results.hidingShorts(in: .search)) { item in
                 if let route = Route(item) {
                     NavigationLink(value: route) {
                         ContentRow(item: item)

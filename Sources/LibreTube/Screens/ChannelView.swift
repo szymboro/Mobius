@@ -134,6 +134,7 @@ struct ChannelView: View {
     }
 
     @StateObject private var model: ChannelViewModel
+    @ObservedObject private var settings = AppSettings.shared
     @State private var descriptionExpanded = false
     @State private var pane: Pane = .videos
 
@@ -184,7 +185,7 @@ struct ChannelView: View {
             Text("This channel has no videos.")
                 .foregroundStyle(.secondary)
         }
-        ForEach(model.videos) { video in
+        ForEach(model.videos.hidingShorts(in: .channels)) { video in
             NavigationLink(value: Route.video(video.videoId)) {
                 VideoRow(video: video)
             }

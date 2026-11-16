@@ -189,6 +189,9 @@ struct SettingsView: View {
     private var contentSection: some View {
         Section("Content") {
             NavigationLink("Home Sections") { HomeSectionsSettingsView() }
+            NavigationLink { ShortsSettingsView() } label: {
+                LabeledContent("Shorts", value: settings.hideShorts ? "Hidden" : "Shown")
+            }
 
             Picker("Live Now Region", selection: $settings.region) {
                 ForEach(Self.regions, id: \.self) { code in
@@ -374,6 +377,66 @@ struct HomeSectionsSettingsView: View {
             }
         }
         .navigationTitle("Home Sections")
+    }
+}
+
+/// Hides Shorts everywhere or on chosen screens, optionally treating short videos as Shorts.
+struct ShortsSettingsView: View {
+    @ObservedObject private var settings = AppSettings.shared
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("Hide Shorts", isOn: $settings.hideShorts)
+            } footer: {
+                Text("Removes Shorts from video lists. Channels and playlists in search results stay.")
+            }
+
+            if settings.hideShorts {
+                Section {
+                    Toggle("Everywhere", isOn: Binding(
+                        get: { settings.hideShortsIn == Set(ShortsPlace.allCases) },
+                        set: { settings.hideShortsIn = $0 ? Set(ShortsPlace.allCases) : [] }
+                    ))
+                    ForEach(ShortsPlace.allCases) { place in
+                        Toggle(place.title, isOn: Binding(
+                            get: { settings.hideShortsIn.contains(place) },
+                            set: { on in
+                                if on { settings.hideShortsIn.insert(place) } else { settings.hideShortsIn.remove(place) }
+                            }
+                        ))
+                    }
+                } header: {
+                    Text("Hide In")
+                }
+
+                Section {
+                    Picker("Also Hide Videos Up To", selection: $settings.shortsMaxDuration) {
+                        ForEach(AppSettings.shortsDurationOptions, id: \.self) { seconds in
+                            Text(Self.durationTitle(seconds)).tag(seconds)
+                        }
+                    }
+                    .pickerStyle(.navigationLink)
+                } header: {
+                    Text("Length")
+                } footer: {
+                    Text("""
+                    Videos YouTube marks as Shorts are always hidden. Not every source marks them \
+                    (e.g. the subscription feed), so you can also hide any video this short or shorter.
+                    """)
+                }
+            }
+        }
+        .navigationTitle("Shorts")
+    }
+
+    private static func durationTitle(_ seconds: Int) -> String {
+        switch seconds {
+        case 0: "Off (marked Shorts only)"
+        case ..<60: "\(seconds) seconds"
+        case let s where s % 60 == 0: s == 60 ? "1 minute" : "\(s / 60) minutes"
+        default: "\(seconds / 60):\(String(format: "%02d", seconds % 60)) minutes"
+        }
     }
 }
 

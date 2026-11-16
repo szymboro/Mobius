@@ -572,9 +572,10 @@ final class PlayerViewModel: ObservableObject {
 
     // MARK: Autoplay
 
-    /// The first related video not yet played in this session (and not a livestream).
+    /// The first related video not yet played in this session (and not a livestream, nor a
+    /// Short when Shorts are hidden from related videos).
     var nextVideo: VideoInfo? {
-        related.first { !NowPlaying.shared.playedThisSession.contains($0.videoId) && !$0.isLive }
+        related.hidingShorts(in: .related).first { !NowPlaying.shared.playedThisSession.contains($0.videoId) && !$0.isLive }
     }
 
     private func playbackEnded() {

@@ -256,7 +256,7 @@ struct PlayerView: View {
             Text("No related videos.")
                 .foregroundStyle(.secondary)
         }
-        ForEach(model.related) { video in
+        ForEach(model.related.hidingShorts(in: .related)) { video in
             // Replaces the current video in place (NowPlaying tears the old one down).
             Button {
                 NowPlaying.shared.open(videoId: video.videoId)

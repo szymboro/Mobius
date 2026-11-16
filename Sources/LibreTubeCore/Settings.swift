@@ -26,6 +26,9 @@ public final class Settings: ObservableObject {
         static let homeSections = "homeSections"
         static let autoplay = "autoplay"
         static let audioOnly = "audioOnly"
+        static let hideShorts = "hideShorts"
+        static let shortsMaxDuration = "shortsMaxDuration"
+        static let hideShortsIn = "hideShortsIn"
     }
 
     private let defaults: UserDefaults
@@ -68,6 +71,37 @@ public final class Settings: ObservableObject {
     /// Show the thumbnail instead of the video and stream the lowest video quality (e.g. music).
     @Published public var audioOnly: Bool {
         didSet { defaults.set(audioOnly, forKey: Key.audioOnly) }
+    }
+
+    /// Hide Shorts (in the places chosen in `hideShortsIn`).
+    @Published public var hideShorts: Bool {
+        didSet { defaults.set(hideShorts, forKey: Key.hideShorts) }
+    }
+
+    /// Videos up to this many seconds also count as Shorts; 0 = only videos YouTube marks as Shorts.
+    @Published public var shortsMaxDuration: Int {
+        didSet { defaults.set(shortsMaxDuration, forKey: Key.shortsMaxDuration) }
+    }
+
+    /// Where Shorts are hidden when `hideShorts` is on.
+    @Published public var hideShortsIn: Set<ShortsPlace> {
+        didSet { defaults.set(hideShortsIn.map(\.rawValue).sorted(), forKey: Key.hideShortsIn) }
+    }
+
+    /// Choices for `shortsMaxDuration`, in seconds.
+    public static let shortsDurationOptions: [Int] = [0, 60, 90, 120, 180, 240, 300]
+
+    /// Whether a video counts as a Short: marked as one, or (optionally) no longer than
+    /// `shortsMaxDuration`. Live streams and items without a duration are never caught by length.
+    public func isShort(isShort: Bool, duration: Int?) -> Bool {
+        if isShort { return true }
+        guard shortsMaxDuration > 0, let duration, duration > 0 else { return false }
+        return duration <= shortsMaxDuration
+    }
+
+    /// Whether Shorts should be filtered out of the given screen.
+    public func hidesShorts(in place: ShortsPlace) -> Bool {
+        hideShorts && hideShortsIn.contains(place)
     }
 
     /// Resolves playable streams for a video from the selected `streamSource`.
@@ -135,6 +169,10 @@ public final class Settings: ObservableObject {
             ?? HomeSection.allCases
         autoplay = defaults.object(forKey: Key.autoplay) as? Bool ?? true
         audioOnly = defaults.bool(forKey: Key.audioOnly)
+        hideShorts = defaults.bool(forKey: Key.hideShorts)
+        shortsMaxDuration = defaults.object(forKey: Key.shortsMaxDuration) as? Int ?? 0
+        hideShortsIn = defaults.stringArray(forKey: Key.hideShortsIn)
+            .map { Set($0.compactMap(ShortsPlace.init(rawValue:))) } ?? Set(ShortsPlace.allCases)
         api = PipedAPI(baseURL: url)
     }
 
@@ -154,6 +192,29 @@ public final class Settings: ObservableObject {
         homeSections = HomeSection.allCases
         autoplay = true
         audioOnly = false
+        hideShorts = false
+        shortsMaxDuration = 0
+        hideShortsIn = Set(ShortsPlace.allCases)
+    }
+}
+
+/// Screens Shorts can be hidden from.
+public enum ShortsPlace: String, CaseIterable, Codable, Sendable, Identifiable {
+    case home
+    case subscriptions
+    case search
+    case channels
+    case related
+
+    public var id: String { rawValue }
+    public var title: String {
+        switch self {
+        case .home: "Home"
+        case .subscriptions: "Subscriptions"
+        case .search: "Search"
+        case .channels: "Channels"
+        case .related: "Related Videos & Autoplay"
+        }
     }
 }
 

@@ -176,3 +176,31 @@ enum ModelFactory {
         return try? JSONDecoder().decode(T.self, from: data)
     }
 }
+
+// MARK: - Shorts filter
+
+@MainActor
+extension VideoInfo {
+    /// Counts as a Short under the current settings (marked as one, or short enough).
+    var countsAsShort: Bool { AppSettings.shared.isShort(isShort: isShort, duration: duration) }
+}
+
+@MainActor
+extension Array where Element == VideoInfo {
+    /// Drops Shorts when Settings › Shorts hides them on this screen.
+    func hidingShorts(in place: ShortsPlace) -> [VideoInfo] {
+        AppSettings.shared.hidesShorts(in: place) ? filter { !$0.countsAsShort } : self
+    }
+}
+
+@MainActor
+extension Array where Element == ContentItem {
+    /// Drops Shorts (videos only; channels and playlists stay) when hidden on this screen.
+    func hidingShorts(in place: ShortsPlace) -> [ContentItem] {
+        let settings = AppSettings.shared
+        guard settings.hidesShorts(in: place) else { return self }
+        return filter { item in
+            !(item.isStream && settings.isShort(isShort: item.isShort == true, duration: item.duration))
+        }
+    }
+}

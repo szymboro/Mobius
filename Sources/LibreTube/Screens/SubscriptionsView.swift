@@ -82,13 +82,14 @@ struct SubscriptionsView: View {
 
     private var feed: some View {
         let ids = channelIds
+        let videos = model.videos.hidingShorts(in: .subscriptions)
         return PhaseView(phase: model.phase, retry: { [model] in await model.load(channelIds: ids) }) {
-            if model.videos.isEmpty {
+            if videos.isEmpty {
                 ContentUnavailableView("No Videos", systemImage: "play.slash")
             } else {
                 ScrollView {
                     LazyVStack(spacing: 20) {
-                        ForEach(model.videos) { video in
+                        ForEach(videos) { video in
                             NavigationLink(value: Route.video(video.videoId)) {
                                 VideoCard(video: withAvatar(video))
                             }

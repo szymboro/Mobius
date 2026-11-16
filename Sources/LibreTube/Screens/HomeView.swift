@@ -110,7 +110,7 @@ struct HomeView: View {
                     text: "Subscribe to channels, or import your subscriptions from NewPipe in Settings › Import."
                 )
             } else {
-                RemoteCarousel(phase: model.featuredPhase, videos: Array(model.featured.prefix(20)),
+                RemoteCarousel(phase: model.featuredPhase, videos: Array(model.featured.hidingShorts(in: .home).prefix(20)),
                                emptyText: "No recent videos from your subscriptions.") { await reload() }
             }
         }
@@ -309,10 +309,11 @@ struct VideoListView: View {
     let source: Source
     @StateObject private var model = HomeViewModel()
     @ObservedObject private var library = LibraryStore.shared
+    @ObservedObject private var settings = AppSettings.shared
 
     var body: some View {
         let phase = source == .subscriptions ? model.featuredPhase : model.liveNowPhase
-        let videos = source == .subscriptions ? model.featured : model.liveNow
+        let videos = source == .subscriptions ? model.featured.hidingShorts(in: .home) : model.liveNow
         PhaseView(phase: phase, retry: { await load() }) {
             ScrollView {
                 LazyVStack(spacing: 20) {

@@ -1,4 +1,5 @@
 import AVKit
+import MobiusCore
 import SwiftUI
 
 /// Wraps `AVPlayerViewController` for system controls, full screen and
@@ -124,6 +125,7 @@ final class InlinePlayerContainer: UIViewController {
         self.player = player
         self.model = model
         super.init(nibName: nil, bundle: nil)
+        model.fullScreenHandler = { [weak self] in self?.enterFullScreen() }
         let center = NotificationCenter.default
         center.addObserver(self, selector: #selector(didEnterBackground),
                            name: UIApplication.didEnterBackgroundNotification, object: nil)
@@ -141,6 +143,20 @@ final class InlinePlayerContainer: UIViewController {
     @objc private func didEnterBackground() {
         isInBackground = true
         attach()
+    }
+
+    /// AVPlayerViewController has no public API to go full screen, so this calls its
+    /// `enterFullScreenAnimated:completionHandler:` (the same path as its full-screen button, so
+    /// the delegate still turns the screen to landscape). Does nothing if the method is missing.
+    func enterFullScreen() {
+        let selector = NSSelectorFromString("enterFullScreenAnimated:completionHandler:")
+        guard viewIfLoaded?.window != nil, playerController.responds(to: selector) else {
+            PlaybackLog.shared.add("full screen: not available", "player")
+            return
+        }
+        typealias EnterFullScreen = @convention(c) (AnyObject, Selector, Bool, (@convention(block) (Bool) -> Void)?) -> Void
+        let implementation = unsafeBitCast(playerController.method(for: selector), to: EnterFullScreen.self)
+        implementation(playerController, selector, true, nil)
     }
 
     private var artworkHost: UIHostingController<AudioOnlyArtwork>?

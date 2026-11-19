@@ -80,6 +80,8 @@ final class PlayerViewModel: ObservableObject {
     /// Set by the AVPlayerViewController delegate. PiP keeps the (hidden) expanded player mounted
     /// after minimizing, and both keep the SABR server running when the app goes to the background.
     var isFullScreen = false
+    /// Set by the inline player container; enters AVKit's full screen (swipe up on the video).
+    var fullScreenHandler: (() -> Void)?
     @Published var isPictureInPictureActive = false
     /// Thumbnail instead of video, lowest video quality (Settings.audioOnly, toggled in the player).
     @Published private(set) var isAudioOnly = AppSettings.shared.audioOnly
@@ -502,6 +504,11 @@ final class PlayerViewModel: ObservableObject {
         player?.pause()
     }
 
+    func enterFullScreen() {
+        guard !isFullScreen, player != nil else { return }
+        fullScreenHandler?()
+    }
+
     func togglePlayPause() {
         if isPaused { play() } else { pause() }
     }
@@ -581,9 +588,7 @@ final class PlayerViewModel: ObservableObject {
     private func playbackEnded() {
         guard !isClosed else { return }
         capturePosition()
-        guard AppSettings.shared.autoplay, let next = nextVideo else { return }
-        PlaybackLog.shared.add("autoplay: \(next.videoId)")
-        NowPlaying.shared.open(videoId: next.videoId, expand: false)
+        NowPlaying.shared.playbackEnded()
     }
 
     // MARK: Quality

@@ -106,9 +106,10 @@ private struct ExpandedPlayer: View {
 }
 
 /// Drag down on the player (or its header) to minimize, with the view following the finger.
+/// With `onSwipeUp` (the video itself), a quick upward swipe enters full screen.
 enum MinimizeDrag {
     @MainActor
-    static func gesture(offset: Binding<CGFloat>) -> some Gesture {
+    static func gesture(offset: Binding<CGFloat>, onSwipeUp: (() -> Void)? = nil) -> some Gesture {
         DragGesture(minimumDistance: 16, coordinateSpace: .global)
             .onChanged { value in
                 let dy = value.translation.height
@@ -117,10 +118,16 @@ enum MinimizeDrag {
                 offset.wrappedValue = dy
             }
             .onEnded { value in
+                let dy = value.translation.height
                 let shouldMinimize = offset.wrappedValue > 0
-                    && (value.translation.height > 140 || value.predictedEndTranslation.height > 360)
+                    && (dy > 140 || value.predictedEndTranslation.height > 360)
+                let isSwipeUp = offset.wrappedValue == 0
+                    && -dy > abs(value.translation.width) * 1.5
+                    && (dy < -60 || value.predictedEndTranslation.height < -180)
                 if shouldMinimize {
                     NowPlaying.shared.minimize()
+                } else if isSwipeUp, let onSwipeUp {
+                    onSwipeUp()
                 }
                 withAnimation(NowPlaying.spring) { offset.wrappedValue = 0 }
             }

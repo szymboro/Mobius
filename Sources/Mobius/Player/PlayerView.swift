@@ -10,6 +10,8 @@ struct PlayerView: View {
     @State private var tab: PlayerViewModel.Tab = .related
     @State private var descriptionExpanded = false
     @State private var showingAddToPlaylist = false
+    @State private var showingQueue = false
+    @ObservedObject private var nowPlaying = NowPlaying.shared
     @ObservedObject private var settings = AppSettings.shared
     @ObservedObject private var deArrow = DeArrow.shared
     @State private var votes: ReturnYouTubeDislike.Votes?
@@ -27,6 +29,9 @@ struct PlayerView: View {
             if let video = model.video {
                 AddToPlaylistSheet(video: video)
             }
+        }
+        .sheet(isPresented: $showingQueue) {
+            QueueSheet()
         }
     }
 
@@ -53,7 +58,9 @@ struct PlayerView: View {
             }
         }
         .aspectRatio(16 / 9, contentMode: .fit)
-        .simultaneousGesture(dragOffset.map { MinimizeDrag.gesture(offset: $0) })
+        .simultaneousGesture(dragOffset.map { offset in
+            MinimizeDrag.gesture(offset: offset) { [model] in model.enterFullScreen() }
+        })
         .overlay(alignment: .topLeading) {
             if let notice = model.skipNotice {
                 Text(notice)
@@ -144,6 +151,12 @@ struct PlayerView: View {
                 ShareLink(item: url) {
                     Label("Share", systemImage: "square.and.arrow.up")
                 }
+            }
+            Button {
+                showingQueue = true
+            } label: {
+                Label(nowPlaying.queue.isEmpty ? "Queue" : "Queue (\(nowPlaying.queue.count))",
+                      systemImage: "list.bullet")
             }
             QualityMenu(model: model)
             Button {
@@ -264,6 +277,27 @@ struct PlayerView: View {
         Toggle(isOn: $settings.autoplay) {
             Label("Autoplay", systemImage: "play.square.stack")
                 .font(.subheadline.weight(.semibold))
+        }
+        if let upNext = nowPlaying.queue.first {
+            Button {
+                showingQueue = true
+            } label: {
+                HStack {
+                    Label {
+                        Text("Up next: \(upNext.displayTitle)").lineLimit(1)
+                    } icon: {
+                        Image(systemName: "list.bullet")
+                    }
+                    Spacer(minLength: 4)
+                    if nowPlaying.queue.count > 1 {
+                        Text("+\(nowPlaying.queue.count - 1)").foregroundStyle(.secondary)
+                    }
+                    Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+                }
+                .font(.subheadline)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
         if model.related.isEmpty {
             Text("No related videos.")

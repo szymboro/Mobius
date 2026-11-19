@@ -18,6 +18,9 @@ final class NowPlaying: ObservableObject {
     /// pushes it onto the selected tab's path and clears it.
     @Published var pendingRoute: Route?
 
+    /// Videos to play after the current one, in order. Takes priority over autoplay.
+    @Published private(set) var queue: [VideoInfo] = []
+
     /// Videos opened since launch, so autoplay doesn't loop between two related videos.
     private(set) var playedThisSession: Set<String> = []
 
@@ -36,6 +39,7 @@ final class NowPlaying: ObservableObject {
     func open(videoId: String, expand shouldExpand: Bool = true) {
         guard !videoId.isEmpty else { return }
         playedThisSession.insert(videoId)
+        queue.removeAll { $0.videoId == videoId }
         if let model, model.videoId == videoId, !model.isClosed {
             log("open \(videoId): already playing, expanding")
             expand()
@@ -66,12 +70,63 @@ final class NowPlaying: ObservableObject {
         new.start()
     }
 
-    /// Skips to the autoplay candidate (lock screen / headphone "next").
+    /// Skips to the next queued video, or else the autoplay candidate (lock screen / headphone
+    /// "next").
     @discardableResult
     func playNext() -> Bool {
+        if let queued = queue.first {
+            open(videoId: queued.videoId, expand: false)
+            return true
+        }
         guard let next = model?.nextVideo else { return false }
         open(videoId: next.videoId, expand: false)
         return true
+    }
+
+    /// Called when a video ends: plays the queue first, then autoplay if it's on.
+    func playbackEnded() {
+        if let queued = queue.first {
+            log("queue: \(queued.videoId)")
+            open(videoId: queued.videoId, expand: false)
+        } else if AppSettings.shared.autoplay, let next = model?.nextVideo {
+            log("autoplay: \(next.videoId)")
+            open(videoId: next.videoId, expand: false)
+        }
+    }
+
+    // MARK: Queue
+
+    func isQueued(_ videoId: String) -> Bool {
+        queue.contains { $0.videoId == videoId }
+    }
+
+    /// Adds `video` to the end of the queue (or the top with `next`). With nothing playing it
+    /// starts playing right away instead, in the mini player.
+    func enqueue(_ video: VideoInfo, next: Bool = false) {
+        guard !video.videoId.isEmpty else { return }
+        guard let model, !model.isClosed else {
+            open(videoId: video.videoId, expand: false)
+            return
+        }
+        guard video.videoId != model.videoId else { return }
+        queue.removeAll { $0.videoId == video.videoId }
+        if next {
+            queue.insert(video, at: 0)
+        } else {
+            queue.append(video)
+        }
+    }
+
+    func removeFromQueue(_ videoId: String) {
+        queue.removeAll { $0.videoId == videoId }
+    }
+
+    func moveQueue(fromOffsets source: IndexSet, toOffset destination: Int) {
+        queue.move(fromOffsets: source, toOffset: destination)
+    }
+
+    func clearQueue() {
+        queue.removeAll()
     }
 
     func minimize() {

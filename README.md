@@ -13,7 +13,8 @@ A private YouTube client for iPhone and iPad, without Google accounts, ads or tr
 
 **Watching**
 - Native player (AVKit) with Picture-in-Picture, AirPlay, lock screen / Control Center controls and background playback, including with the screen locked
-- Mini player that stays above the tab bar; drag the player down to minimize it
+- Mini player that stays above the tab bar; drag the player down to minimize it, swipe up on the video for full screen
+- **Queue**: touch and hold any video to add it to the queue (or to its top with "Play Next"); queued videos play before autoplay. Swipe right in the queue to remove a video, touch and hold to reorder
 - Full screen always turns to landscape on iPhone, even with the rotation lock on
 - Quality menu (Auto or a fixed resolution), with a preferred quality in Settings
 - **Audio only**: streams only the audio (no video data is downloaded) and shows the cover art instead – ideal for music
